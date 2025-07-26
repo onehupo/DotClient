@@ -1,46 +1,61 @@
 # Windows版本构建指南
 
-由于在macOS上交叉编译Windows的Tauri应用程序需要特殊的工具链配置，我们提供了以下几种构建方案：
+## 🚀 使用GitHub Actions（推荐）
 
-## 方案1：使用GitHub Actions（推荐）
+GitHub Actions配置已经修复和优化，现在支持：
 
-这是最简单且可靠的方法：
+1. **并行构建**：Windows、macOS、Linux三个平台同时构建
+2. **错误隔离**：一个平台失败不会影响其他平台
+3. **自动发布**：构建成功后自动创建GitHub Release
+
+### 使用步骤：
 
 1. 将代码推送到GitHub仓库
-2. GitHub Actions会自动构建所有平台版本（Windows、macOS、Linux）
-3. 在仓库的Actions页面下载构建好的文件
+2. GitHub Actions会自动触发构建
+3. 在仓库的Actions页面查看构建进度
+4. 构建完成后，在Releases页面下载各平台版本
 
-GitHub Actions配置已经准备好了，位于 `.github/workflows/build.yml`
+### 最新修复：
 
-## 方案2：使用Docker
+- ✅ 修复了Ubuntu依赖问题
+- ✅ 添加了`fail-fast: false`防止单一平台失败影响全部
+- ✅ 简化了macOS构建目标
+- ✅ 改进了错误调试输出
+- ✅ 优化了artifact上传策略
 
-1. 确保已安装Docker
-2. 运行构建脚本：
-   ```bash
-   ./build-windows.sh
-   ```
-3. 构建完成后，Windows版本会在 `windows-build/` 目录中
+## 🐳 使用Docker（备选）
 
-## 方案3：在Windows机器上构建
+如果GitHub Actions不可用，可以使用Docker：
 
-1. 在Windows机器上安装Node.js和Rust
-2. 克隆项目
-3. 运行：
-   ```bash
-   npm install
-   npm run tauri build
-   ```
+```bash
+./build-windows.sh
+```
 
-## 当前问题
+## 🔧 本地Windows机器构建
 
-在macOS上直接交叉编译遇到的问题：
-- `tauri-winres` 库需要 `llvm-rc` 工具来编译Windows资源文件
-- 这个工具在macOS上不容易获得，需要复杂的交叉编译工具链配置
+在Windows机器上：
 
-## 解决方案状态
+```bash
+npm install
+npm run tauri build
+```
 
-- ✅ GitHub Actions配置已准备好
-- ✅ Docker构建配置已准备好  
-- ❌ 直接在macOS上交叉编译需要额外工具链配置
+## 故障排除
 
-建议使用GitHub Actions方案，它是最稳定可靠的方法。
+如果GitHub Actions构建失败：
+
+1. 检查Actions页面的详细日志
+2. 常见问题：
+   - Ubuntu依赖缺失（已修复）
+   - Node.js版本不兼容（使用Node 18）
+   - Rust工具链问题（使用stable工具链）
+
+## 当前状态
+
+- ✅ GitHub Actions配置已优化
+- ✅ 支持Windows x86_64构建
+- ✅ 支持macOS x86_64构建  
+- ✅ 支持Linux x86_64构建
+- ✅ 自动发布到GitHub Releases
+
+**推荐直接使用GitHub Actions，这是最稳定可靠的构建方式。**
