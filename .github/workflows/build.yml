@@ -18,6 +18,11 @@ jobs:
           - name: macos-latest
             target: x86_64-apple-darwin
             ext: ''
+            arch: 'Intel'
+          - name: macos-latest
+            target: aarch64-apple-darwin
+            ext: ''
+            arch: 'Apple Silicon'
 
     runs-on: ${{ matrix.platform.name }}
 
@@ -44,25 +49,28 @@ jobs:
         workspaces: "./src-tauri -> target"
 
     - name: Build Tauri App
-      run: npm run tauri build
+      run: npm run tauri build -- --target ${{ matrix.platform.target }}
 
     - name: Upload executable
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.platform.name }}-executable
-        path: src-tauri/target/release/dotclient${{ matrix.platform.ext }}
+        name: ${{ matrix.platform.name }}-${{ matrix.platform.target }}-executable
+        path: src-tauri/target/${{ matrix.platform.target }}/release/dotclient${{ matrix.platform.ext }}
 
     - name: Upload bundle (if exists)
       uses: actions/upload-artifact@v4
       if: always()
       with:
-        name: ${{ matrix.platform.name }}-bundle
-        path: src-tauri/target/release/bundle/
+        name: ${{ matrix.platform.name }}-${{ matrix.platform.target }}-bundle
+        path: src-tauri/target/${{ matrix.platform.target }}/release/bundle/
 
   release:
     needs: build
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    permissions:
+      contents: write
+      releases: write
     steps:
     - uses: actions/checkout@v4
     
@@ -84,7 +92,8 @@ jobs:
           
           包含以下平台的构建文件：
           - Windows x86_64
-          - macOS x86_64
+          - macOS Intel (x86_64)
+          - macOS Apple Silicon (aarch64)
         files: |
           artifacts/**/*
         draft: false
