@@ -173,13 +173,13 @@ button {
   overflow: hidden;
 }
 
-.image-page, .text-page {
+.image-page, .text-page, .text-to-image-page {
   height: 100%;
   display: flex;
   flex-direction: column;
 }
 
-.text-page h2, .image-page h2 {
+.text-page h2, .image-page h2, .text-to-image-page h2 {
   margin-top: 10px;
   margin-bottom: 15px;
   color: #1f2937;
@@ -347,6 +347,8 @@ button {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 15px;
+  min-height: 256px;
+  max-height: 256px;
 }
 
 .config-grid .config-item:last-child {
@@ -524,7 +526,7 @@ button {
   border-radius: 4px;
   background-color: #fafafa;
   cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  /* transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); */
   text-align: center;
   font-size: 12px;
   color: #666;
@@ -1239,6 +1241,8 @@ button {
   gap: 20px;
   max-width: 100%;
   overflow: hidden;
+  min-height: 256px;
+  max-height: 256px;
 }
 
 .config-left {
@@ -1387,7 +1391,7 @@ button {
   color: #888;
 }
 
-.dark-mode .text-page h2, .dark-mode .image-page h2 {
+.dark-mode .text-page h2, .dark-mode .image-page h2, .dark-mode .text-to-image-page h2 {
   color: #f3f4f6;
   text-shadow: 0 2px 4px rgba(0, 0, 0, 0.4);
   background: linear-gradient(135deg, #f3f4f6 0%, #d1d5db 100%);
@@ -1396,7 +1400,7 @@ button {
   background-clip: text;
 }
 
-.dark-mode .text-page h3, .dark-mode .image-page h3 {
+.dark-mode .text-page h3, .dark-mode .image-page h3, .dark-mode .text-to-image-page h3 {
   color: #f6f6f6;
 }
 
@@ -2666,4 +2670,411 @@ button {
 .dark-mode .setting-item input:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+}
+
+/* 文转图功能样式 */
+.text-to-image-config-layout {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+  min-height: 256px;
+  max-height: 256px;
+}
+
+.config-basic {
+  flex: 1;
+  min-width: 300px;
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.background-color-options {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  margin-bottom: 16px;
+}
+
+.color-button {
+  padding: 8px 16px;
+  border: 2px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.color-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.color-button.selected {
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2);
+}
+
+/* 背景图片相关样式 */
+.background-image-section {
+  margin-top: 0px;
+}
+
+.background-image-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.background-image-input {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.background-file-input {
+  position: relative;
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px dashed #d1d5db;
+  border-radius: 4px;
+  background-color: #f9fafb;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  font-size: 12px;
+  color: #6b7280;
+  flex: 1;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.background-file-input:hover {
+  border-color: #3b82f6;
+  background-color: #f0f4ff;
+  color: #3b82f6;
+}
+
+.background-file-input input[type="file"] {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.clear-background-button {
+  padding: 6px 12px;
+  background: #ef4444;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 12px;
+  line-height: 24px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  height: 100%;
+  box-sizing: border-box;
+  margin-bottom: 5px;
+}
+
+.clear-background-button:hover {
+  background: #dc2626;
+}
+
+.text-config-section {
+  flex: 2;
+  min-width: 400px;
+  background: #f8f9fa;
+  padding: 16px;
+  border-radius: 8px;
+  border: 1px solid #e9ecef;
+}
+
+.text-config-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.text-config-header h4 {
+  margin: 0;
+  color: #374151;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.add-text-button {
+  background: #10b981;
+  color: white;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.add-text-button:hover {
+  background: #059669;
+  transform: translateY(-1px);
+}
+
+.text-items-container {
+  max-height: 172px;
+  overflow-y: auto;
+  padding-right: 5px;
+}
+
+.no-text-placeholder {
+  text-align: center;
+  padding: 40px 20px;
+  color: #6b7280;
+  border: 2px dashed #d1d5db;
+  border-radius: 8px;
+  background: #f9fafb;
+  min-height: 88px;
+}
+
+.no-text-placeholder p {
+  margin: 0;
+  font-size: 14px;
+}
+
+.text-item {
+  background: white;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.text-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.text-item-title {
+  font-weight: 600;
+  color: #374151;
+  font-size: 14px;
+}
+
+.remove-text-button {
+  background: #ef4444;
+  color: white;
+  border: none;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.remove-text-button:hover {
+  background: #dc2626;
+}
+
+.text-item-config {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.config-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: end;
+}
+
+.config-row .config-item {
+  flex: 1;
+  min-width: 60px;
+  max-width: 140px;
+}
+
+.config-row .config-item label {
+  display: block;
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  height: 14px;
+  line-height: 14px;
+}
+
+.config-row .config-item input,
+.config-row .config-item select {
+  width: 100%;
+  padding: 4px 6px;
+  border: 1px solid #d1d5db;
+  border-radius: 3px;
+  font-size: 12px;
+  background: white;
+  color: #374151;
+  box-sizing: border-box;
+  height: 28px;
+  line-height: 1.2;
+}
+
+.config-row .config-item input:focus,
+.config-row .config-item select:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.1);
+}
+
+/* 特定配置项的尺寸优化 */
+.config-row .config-item:has(input[type="number"]) {
+  max-width: 78px;
+}
+
+.config-row .config-item:has(select) {
+  max-width: 78px;
+}
+
+.config-row .config-item:has(input[type="text"]) {
+  max-width: 100%;
+  min-width: 100%;
+  flex: 1;
+}
+
+/* 在不支持:has()的浏览器中的备用方案 */
+.config-row .config-item.number-input {
+  max-width: 78px;
+}
+
+.config-row .config-item.select-input {
+  max-width: 78px;
+}
+
+.config-row .config-item.text-input {
+  max-width: 100%;
+  min-width: 100%;
+  flex: 1;
+}
+
+/* 深色模式下的文转图样式 */
+
+.dark-mode .config-basic {
+  background: #374151;
+  border-color: #4b5563;
+}
+
+.dark-mode .text-config-section {
+  background: #374151;
+  border-color: #4b5563;
+}
+
+/* 深色模式下的背景图片样式 */
+.dark-mode .background-file-input {
+  border-color: #4b5563;
+  background-color: #1f2937;
+  color: #9ca3af;
+  height: 28px;
+  line-height: 1.2;
+  box-sizing: border-box;
+}
+
+.dark-mode .background-file-input:hover {
+  border-color: #60a5fa;
+  background-color: #1e3a8a;
+  color: #60a5fa;
+}
+
+.dark-mode .background-image-preview {
+  border-color: #4b5563;
+}
+
+.dark-mode .text-config-header h4 {
+  color: #d1d5db;
+}
+
+.dark-mode .no-text-placeholder {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #9ca3af;
+}
+
+.dark-mode .text-item {
+  background: #374151;
+  border-color: #4b5563;
+}
+
+.dark-mode .text-item-header {
+  border-color: #4b5563;
+}
+
+.dark-mode .text-item-title {
+  color: #d1d5db;
+}
+
+.dark-mode .config-row .config-item label {
+  color: #9ca3af;
+  height: 14px;
+  line-height: 14px;
+}
+
+.dark-mode .config-row .config-item input,
+.dark-mode .config-row .config-item select {
+  background: #1f2937;
+  border-color: #4b5563;
+  color: #d1d5db;
+  height: 28px;
+  line-height: 1.2;
+}
+
+.dark-mode .config-row .config-item input:focus,
+.dark-mode .config-row .config-item select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.1);
+}
+
+.dark-mode .color-button.selected {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.2);
+}
+
+/* 文本项容器滚动条样式 */
+
+.text-items-container::-webkit-scrollbar {
+  width: 6px;
+}
+
+.text-items-container::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.text-items-container::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.text-items-container::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+.dark-mode .text-items-container::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+.dark-mode .text-items-container::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+.dark-mode .text-items-container::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
 }

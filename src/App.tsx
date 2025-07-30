@@ -15,6 +15,24 @@ function App() {
   const [imageConfig, setImageConfig] = useState({
     link: ""
   });
+  const [textToImageConfig, setTextToImageConfig] = useState({
+    backgroundColor: "white" as "white" | "black" | "gray",
+    backgroundImage: null as string | null,
+    texts: [] as Array<{
+      id: string;
+      content: string;
+      x: number;
+      y: number;
+      fontSize: number;
+      rotation: number;
+      fontWeight: "normal" | "bold";
+      textAlign: "left" | "center" | "right";
+      color: "white" | "black" | "gray";
+      fontFamily: "Arial" | "Georgia" | "Times New Roman" | "Courier New" | "Helvetica" | "Verdana";
+    }>,
+    link: ""
+  });
+  const [textToImagePreview, setTextToImagePreview] = useState("");
   const [imagePreview, setImagePreview] = useState("");
   const [processedImagePreview, setProcessedImagePreview] = useState("");
   const [base64Input, setBase64Input] = useState("");
@@ -110,6 +128,11 @@ function App() {
     }
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
   }, [darkMode]);
+
+  // 当文转图配置改变时，自动更新预览
+  useEffect(() => {
+    updateTextToImagePreview();
+  }, [textToImageConfig]);
 
   // 当算法改变时，如果已有处理后的图片，自动重新处理（只在非用户主动切换时触发）
   useEffect(() => {
@@ -282,6 +305,141 @@ function App() {
     ctx.fillRect(0, 0, width, height);
     
     return canvas.toDataURL('image/png');
+  };
+
+  // 生成文转图
+  const generateTextToImage = () => {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return '';
+
+    canvas.width = 296;
+    canvas.height = 152;
+    
+    // 设置背景
+    if (textToImageConfig.backgroundImage) {
+      // 如果有背景图片，绘制背景图片
+      const img = new Image();
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, 296, 152);
+        drawTexts(ctx);
+        const newPreview = canvas.toDataURL('image/png');
+        setTextToImagePreview(newPreview);
+      };
+      img.src = textToImageConfig.backgroundImage;
+      return textToImagePreview; // 返回当前预览，等待图片加载完成后更新
+    } else {
+      // 使用纯色背景
+      ctx.fillStyle = textToImageConfig.backgroundColor === 'black' ? '#000000' : 
+                     textToImageConfig.backgroundColor === 'white' ? '#ffffff' : '#808080';
+      ctx.fillRect(0, 0, 296, 152);
+    }
+    
+    drawTexts(ctx);
+    return canvas.toDataURL('image/png');
+  };
+
+  // 绘制文本的辅助函数
+  const drawTexts = (ctx: CanvasRenderingContext2D) => {
+    textToImageConfig.texts.forEach(text => {
+      ctx.save();
+      
+      // 设置字体
+      ctx.font = `${text.fontWeight} ${text.fontSize}px ${text.fontFamily}`;
+      ctx.fillStyle = text.color === 'black' ? '#000000' : text.color === 'white' ? '#ffffff' : '#808080';
+      ctx.textAlign = text.textAlign;
+      
+      // 移动到指定位置并旋转
+      ctx.translate(text.x, text.y);
+      ctx.rotate((text.rotation * Math.PI) / 180);
+      
+      // 绘制文本
+      ctx.fillText(text.content, 0, 0);
+      
+      ctx.restore();
+    });
+  };
+
+  // 更新文转图预览
+  const updateTextToImagePreview = () => {
+    const preview = generateTextToImage();
+    setTextToImagePreview(preview);
+  };
+
+  // 添加文本
+  const addText = () => {
+    const newText = {
+      id: Date.now().toString(),
+      content: "新文本",
+      x: 148, // 中心位置
+      y: 76,  // 中心位置
+      fontSize: 16,
+      rotation: 0,
+      fontWeight: "normal" as "normal" | "bold",
+      textAlign: "center" as "left" | "center" | "right",
+      color: (textToImageConfig.backgroundColor === "white" ? "black" : "white") as "white" | "black" | "gray",
+      fontFamily: "Arial" as "Arial" | "Georgia" | "Times New Roman" | "Courier New" | "Helvetica" | "Verdana"
+    };
+    setTextToImageConfig({
+      ...textToImageConfig,
+      texts: [...textToImageConfig.texts, newText]
+    });
+  };
+
+  // 删除文本
+  const removeText = (id: string) => {
+    setTextToImageConfig({
+      ...textToImageConfig,
+      texts: textToImageConfig.texts.filter(text => text.id !== id)
+    });
+  };
+
+  // 更新文本
+  const updateText = (id: string, updates: Partial<typeof textToImageConfig.texts[0]>) => {
+    setTextToImageConfig({
+      ...textToImageConfig,
+      texts: textToImageConfig.texts.map(text =>
+        text.id === id ? { ...text, ...updates } : text
+      )
+    });
+  };
+
+  // 处理背景图片上传
+  const handleBackgroundImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const result = e.target?.result as string;
+        try {
+          // 调整背景图片尺寸为296x152
+          const resizedImage = await resizeImageTo296x152(result);
+          setTextToImageConfig({
+            ...textToImageConfig,
+            backgroundImage: resizedImage
+          });
+        } catch (error) {
+          console.error('背景图片处理失败:', error);
+          // 如果调整失败，使用原图
+          setTextToImageConfig({
+            ...textToImageConfig,
+            backgroundImage: result
+          });
+        }
+      };
+      reader.onerror = () => {
+        console.error('背景图片读取失败');
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // 清除背景图片
+  const clearBackgroundImage = () => {
+    setTextToImageConfig({
+      ...textToImageConfig,
+      backgroundImage: null
+    });
   };
 
   // 调整图片尺寸为296x152
@@ -1148,6 +1306,12 @@ function App() {
           >
             图片
           </button>
+          <button 
+            className={`tab-button ${activeTab === 'text-to-image' ? 'active' : ''}`}
+            onClick={() => setActiveTab('text-to-image')}
+          >
+            文转图
+          </button>
         </div>
         
         <div className="tab-content">
@@ -1297,7 +1461,7 @@ function App() {
                 </button>
               </div>
             </div>
-          ) : (
+          ) : activeTab === 'image' ? (
             <div className="image-page">
               <h2>通过图片API更新你的dot.</h2>
               
@@ -1556,6 +1720,345 @@ function App() {
                     }
                   }}
                   disabled={!imagePreview}
+                >
+                  发送
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="text-to-image-page">
+              <h2>通过图片API更新你的dot.</h2>
+              
+              {/* 图片预览框 */}
+              <div className="image-preview-container">
+                <div 
+                  className={`image-preview-box ${textToImageConfig.link ? 'preview-box-clickable' : ''}`}
+                  onClick={() => {
+                    if (textToImageConfig.link) {
+                      window.open(textToImageConfig.link, '_blank');
+                    }
+                  }}
+                  style={{ cursor: textToImageConfig.link ? 'pointer' : 'default' }}
+                >
+                  {textToImagePreview ? (
+                    <img 
+                      src={textToImagePreview} 
+                      alt="文转图预览" 
+                      className="preview-image"
+                    />
+                  ) : (
+                    <div className="image-placeholder">
+                      <span className="placeholder-icon">📝</span>
+                      <p>文转图预览</p>
+                    </div>
+                  )}
+                  {textToImageConfig.link && (
+                    <div className="preview-link-indicator">
+                      <span className="link-icon">🔗</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* 配置区域 */}
+              <div className="config-section">
+                <h3>配置预览内容</h3>
+                <div className="text-to-image-config-layout">
+                  {/* 基础配置 */}
+                  <div className="config-basic">
+                    <div className="config-item">
+                      <label>背景颜色:</label>
+                      <div className="background-color-options">
+                        <button 
+                          className={`color-button ${textToImageConfig.backgroundColor === 'white' ? 'selected' : ''}`}
+                          onClick={() => {
+                            setTextToImageConfig({...textToImageConfig, backgroundColor: 'white'});
+                          }}
+                          style={{ backgroundColor: 'white', color: 'black' }}
+                        >
+                          白色
+                        </button>
+                        <button 
+                          className={`color-button ${textToImageConfig.backgroundColor === 'black' ? 'selected' : ''}`}
+                          onClick={() => {
+                            setTextToImageConfig({...textToImageConfig, backgroundColor: 'black'});
+                          }}
+                          style={{ backgroundColor: 'black', color: 'white' }}
+                        >
+                          黑色
+                        </button>
+                        <button 
+                          className={`color-button ${textToImageConfig.backgroundColor === 'gray' ? 'selected' : ''}`}
+                          onClick={() => {
+                            setTextToImageConfig({...textToImageConfig, backgroundColor: 'gray'});
+                          }}
+                          style={{ backgroundColor: 'gray', color: 'white' }}
+                        >
+                          灰色
+                        </button>
+                      </div>
+                    </div>
+                    
+                    <div className="config-item background-image-section">
+                      <label>背景图片:</label>
+                      <div className="background-image-upload">
+                        <div className="background-image-input">
+                          <label className="background-file-input">
+                            <input
+                              type="file"
+                              accept="image/*"
+                              onChange={handleBackgroundImageUpload}
+                              title="选择背景图片"
+                            />
+                            选择背景图片
+                          </label>
+                          {textToImageConfig.backgroundImage && (
+                            <button 
+                              className="clear-background-button"
+                              onClick={clearBackgroundImage}
+                              title="清除背景图片"
+                            >
+                              清除
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="config-item">
+                      <label>Link:</label>
+                      <input
+                        type="url"
+                        value={textToImageConfig.link}
+                        onChange={(e) => setTextToImageConfig({...textToImageConfig, link: e.target.value})}
+                        placeholder="输入跳转链接（可选）"
+                      />
+                    </div>
+                  </div>
+                  
+                  {/* 文本配置 */}
+                  <div className="text-config-section">
+                    <div className="text-config-header">
+                      <h4>文本配置</h4>
+                      <button className="add-text-button" onClick={addText}>
+                        + 添加文本
+                      </button>
+                    </div>
+                    
+                    <div className="text-items-container">
+                      {textToImageConfig.texts.length === 0 ? (
+                        <div className="no-text-placeholder">
+                          <p>暂无文本，点击"添加文本"开始创建</p>
+                        </div>
+                      ) : (
+                        textToImageConfig.texts.map((text, index) => (
+                          <div key={text.id} className="text-item">
+                            <div className="text-item-header">
+                              <span className="text-item-title">文本 {index + 1}</span>
+                              <button 
+                                className="remove-text-button"
+                                onClick={() => removeText(text.id)}
+                              >
+                                删除
+                              </button>
+                            </div>
+                            
+                            <div className="text-item-config">
+                              <div className="config-row">
+                                <div className="config-item text-input">
+                                  <label>内容:</label>
+                                  <input
+                                    type="text"
+                                    value={text.content}
+                                    onChange={(e) => updateText(text.id, { content: e.target.value })}
+                                    placeholder="输入文本内容"
+                                  />
+                                </div>
+                              </div>
+                              
+                              <div className="config-row">
+                                <div className="config-item number-input">
+                                  <label>X位置:</label>
+                                  <input
+                                    type="number"
+                                    value={text.x}
+                                    onChange={(e) => updateText(text.id, { x: parseInt(e.target.value) || 0 })}
+                                    min="0"
+                                    max="296"
+                                  />
+                                </div>
+                                <div className="config-item number-input">
+                                  <label>Y位置:</label>
+                                  <input
+                                    type="number"
+                                    value={text.y}
+                                    onChange={(e) => updateText(text.id, { y: parseInt(e.target.value) || 0 })}
+                                    min="0"
+                                    max="152"
+                                  />
+                                </div>
+                                <div className="config-item number-input">
+                                  <label>字体大小:</label>
+                                  <input
+                                    type="number"
+                                    value={text.fontSize}
+                                    onChange={(e) => updateText(text.id, { fontSize: parseInt(e.target.value) || 12 })}
+                                    min="8"
+                                    max="72"
+                                  />
+                                </div>
+                                <div className="config-item number-input">
+                                  <label>旋转角度:</label>
+                                  <input
+                                    type="number"
+                                    value={text.rotation}
+                                    onChange={(e) => updateText(text.id, { rotation: parseInt(e.target.value) || 0 })}
+                                    min="-180"
+                                    max="180"
+                                  />
+                                </div>
+                                <div className="config-item select-input">
+                                  <label>粗细:</label>
+                                  <select
+                                    value={text.fontWeight}
+                                    onChange={(e) => updateText(text.id, { fontWeight: e.target.value as "normal" | "bold" })}
+                                  >
+                                    <option value="normal">常规</option>
+                                    <option value="bold">粗体</option>
+                                  </select>
+                                </div>
+                                <div className="config-item select-input">
+                                  <label>对齐:</label>
+                                  <select
+                                    value={text.textAlign}
+                                    onChange={(e) => updateText(text.id, { textAlign: e.target.value as "left" | "center" | "right" })}
+                                  >
+                                    <option value="left">左对齐</option>
+                                    <option value="center">居中</option>
+                                    <option value="right">右对齐</option>
+                                  </select>
+                                </div>
+                                <div className="config-item select-input">
+                                  <label>颜色:</label>
+                                  <select
+                                    value={text.color}
+                                    onChange={(e) => updateText(text.id, { color: e.target.value as "white" | "black" | "gray" })}
+                                  >
+                                    <option value="black">黑色</option>
+                                    <option value="white">白色</option>
+                                    <option value="gray">灰色</option>
+                                  </select>
+                                </div>
+                                <div className="config-item select-input">
+                                  <label>字体:</label>
+                                  <select
+                                    value={text.fontFamily}
+                                    onChange={(e) => updateText(text.id, { fontFamily: e.target.value as "Arial" | "Georgia" | "Times New Roman" | "Courier New" | "Helvetica" | "Verdana" })}
+                                  >
+                                    <option value="Arial">Arial</option>
+                                    <option value="Georgia">Georgia</option>
+                                    <option value="Times New Roman">Times New Roman</option>
+                                    <option value="Courier New">Courier New</option>
+                                    <option value="Helvetica">Helvetica</option>
+                                    <option value="Verdana">Verdana</option>
+                                  </select>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* 操作按钮 */}
+              <div className="action-buttons-container">
+                <button 
+                  className="action-button export-button"
+                  onClick={async () => {
+                    if (textToImagePreview) {
+                      try {
+                        showToast('正在导出图片...', 'info');
+                        
+                        // 生成文件名
+                        const now = new Date();
+                        const dateStr = now.getFullYear() + '-' + 
+                                       String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                                       String(now.getDate()).padStart(2, '0');
+                        const timeStr = String(now.getHours()).padStart(2, '0') + '-' + 
+                                       String(now.getMinutes()).padStart(2, '0') + '-' + 
+                                       String(now.getSeconds()).padStart(2, '0');
+                        const filename = `text-to-image-296x152-${dateStr}_${timeStr}.png`;
+                        
+                        // 调用Tauri命令保存图片到下载目录
+                        const savedPath = await invoke('save_image_to_downloads', {
+                          imageData: textToImagePreview,
+                          filename: filename
+                        });
+                        
+                        clearToastsByKeyword('正在导出图片');
+                        setTimeout(() => {
+                          showToast(`导出成功！已保存为 ${filename}`, 'success');
+                        }, 50);
+                        console.log('导出成功:', { filename, savedPath, type: 'text-to-image', size: '296x152' });
+                      } catch (error) {
+                        console.error('导出失败:', error);
+                        clearToastsByKeyword('正在导出图片');
+                        setTimeout(() => {
+                          showToast(`导出失败：${error}`, 'error');
+                        }, 50);
+                      }
+                    } else {
+                      showToast('请先配置文本内容', 'error');
+                    }
+                  }}
+                  disabled={!textToImagePreview || textToImageConfig.texts.length === 0}
+                >
+                  导出
+                </button>
+                <button 
+                  className="action-button send-button"
+                  onClick={async () => {
+                    if (textToImagePreview && textToImageConfig.texts.length > 0) {
+                      console.log('发送文转图:', { textToImageConfig, textToImagePreview });
+                      
+                      // 获取当前选择的设备
+                      const currentDevice = getCurrentDevice();
+                      if (!currentDevice || !currentDevice.apiKey || !currentDevice.serialNumber) {
+                        showToast('请先配置API密钥和设备ID', 'error');
+                        return;
+                      }
+
+                      try {
+                        showToast('正在发送文转图...', 'info');
+                        
+                        // 调用Rust函数发送到API
+                        const result = await invoke('send_image_to_api', {
+                          apiKey: currentDevice.apiKey,
+                          deviceId: currentDevice.serialNumber,
+                          imageData: textToImagePreview,
+                          link: textToImageConfig.link.trim() || null
+                        });
+                        
+                        console.log('API响应:', result);
+                        clearToastsByKeyword('正在发送文转图');
+                        setTimeout(() => {
+                          showToast('文转图发送成功！(296×152)', 'success');
+                        }, 50);
+                        
+                      } catch (error) {
+                        console.error('发送失败:', error);
+                        clearToastsByKeyword('正在发送文转图');
+                        setTimeout(() => {
+                          showToast(`发送失败：${error}`, 'error');
+                        }, 50);
+                      }
+                    } else {
+                      showToast('请先配置文本内容', 'error');
+                    }
+                  }}
+                  disabled={!textToImagePreview || textToImageConfig.texts.length === 0}
                 >
                   发送
                 </button>
