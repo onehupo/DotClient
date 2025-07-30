@@ -170,6 +170,7 @@ function App() {
     
     loadSystemFonts();
     loadIconsFromPublic(); // 加载图标列表
+    loadExamplesFromPublic(); // 加载示例图片列表
 
     const savedTheme = localStorage.getItem('darkMode');
     if (savedTheme) {
@@ -239,7 +240,7 @@ function App() {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
   }, [darkMode]);
 
-  // 当文转图配置改变时，自动更新预览
+  // 当制图配置改变时，自动更新预览
   useEffect(() => {
     updateTextToImagePreview();
   }, [textToImageConfig]);
@@ -417,7 +418,7 @@ function App() {
     return canvas.toDataURL('image/png');
   };
 
-  // 生成文转图
+  // 生成制图
   const generateTextToImage = () => {
     const canvas = document.createElement('canvas');
     const ctx = canvas.getContext('2d');
@@ -470,7 +471,7 @@ function App() {
     });
   };
 
-  // 更新文转图预览
+  // 更新制图预览
   const updateTextToImagePreview = () => {
     const preview = generateTextToImage();
     setTextToImagePreview(preview);
@@ -695,7 +696,90 @@ function App() {
     path: string;
   }>>([]);
 
-  // 生成图标显示名称
+  // 生成示例图片显示名称
+  const generateExampleName = (filename: string): string => {
+    // 移除文件扩展名和尺寸后缀
+    const nameWithoutExt = filename.replace(/\.(png|jpg|jpeg|gif|svg)$/i, '');
+    const nameWithoutSize = nameWithoutExt.replace(/_\d+x\d+$/, '');
+    
+    // 示例图片名称映射
+    const exampleNameMap: { [key: string]: string } = {
+      'template_1': '模板样式1',
+      'template_2': '模板样式2',
+      'template_3': '模板样式3',
+      'temolate_4': '模板样式4', // 保持原有的拼写错误以匹配文件名
+      'template_5': '模板样式5',
+      'template_6': '模板样式6',
+      'template_7': '模板样式7',
+      'sample-296x152-text': '文字内容',
+      'sample-296x152-landscape': '风景图片',
+      'gray_296x152': '灰度测试',
+      'dithered_floyd_steinberg_296x152': '误差扩散',
+      'dithered_ordered_296x152': '有序抖动',
+      'dithered_random_296x152': '随机抖动'
+    };
+    
+    // 处理emoji文件名
+    if (nameWithoutSize.startsWith('emoji_')) {
+      const emojiNumber = nameWithoutSize.replace('emoji_', '');
+      return `表情符号 ${emojiNumber}`;
+    }
+    
+    return exampleNameMap[nameWithoutSize] || nameWithoutSize;
+  };
+
+  // 加载public/examples目录下的示例图片
+  const loadExamplesFromPublic = async () => {
+    try {
+      // 获取public/examples目录下的所有图片文件
+      const exampleFilenames = [
+        // 模板文件
+        'template_1.png', 'template_2.png', 'template_3.png', 'temolate_4.png',
+        'template_5.jpg', 'template_6.jpg', 'template_7.jpg',
+        // 示例图片
+        'sample-296x152-text.png', 'sample-296x152-landscape.png', 'gray_296x152.png',
+        // 抖动处理示例
+        'dithered_floyd_steinberg_296x152.png', 'dithered_ordered_296x152.png', 'dithered_random_296x152.png',
+        // Emoji 表情符号 (1-62)
+        'emoji_1.png', 'emoji_2.png', 'emoji_3.png', 'emoji_4.png', 'emoji_5.png',
+        'emoji_6.png', 'emoji_7.png', 'emoji_8.png', 'emoji_9.png', 'emoji_10.png',
+        'emoji_11.png', 'emoji_12.png', 'emoji_13.png', 'emoji_14.png', 'emoji_15.png',
+        'emoji_16.png', 'emoji_17.png', 'emoji_18.png', 'emoji_19.png', 'emoji_20.png',
+        'emoji_21.png', 'emoji_22.png', 'emoji_23.png', 'emoji_24.png', 'emoji_25.png',
+        'emoji_26.png', 'emoji_27.png', 'emoji_28.png', 'emoji_29.png', 'emoji_30.png',
+        'emoji_31.png', 'emoji_32.png', 'emoji_33.png', 'emoji_34.png', 'emoji_35.png',
+        'emoji_36.png', 'emoji_37.png', 'emoji_38.png', 'emoji_39.png', 'emoji_40.png',
+        'emoji_41.png', 'emoji_42.png', 'emoji_43.png', 'emoji_44.png', 'emoji_45.png',
+        'emoji_46.png', 'emoji_47.png', 'emoji_48.png', 'emoji_49.png', 'emoji_50.png',
+        'emoji_51.png', 'emoji_52.png', 'emoji_53.png', 'emoji_54.png', 'emoji_55.png',
+        'emoji_56.png', 'emoji_57.png', 'emoji_58.png', 'emoji_59.png', 'emoji_60.png',
+        'emoji_61.png', 'emoji_62.png'
+      ];
+
+      const examples = exampleFilenames.map((filename, index) => {
+        if (filename.startsWith('emoji_')) {
+          // 对于emoji文件名，直接使用数字作为名称
+          return {
+            id: `emoji_${index + 1}`,
+            name: `表情符号 ${filename.replace('emoji_', '')}`,
+            size: '296×152',
+            preview: `/examples/${filename}`
+          };
+        }
+        // 对于其他文件名，使用生成的名称
+        return {
+          id: `example_${index + 1}`,
+          name: generateExampleName(filename),
+          size: '296×152',
+          preview: `/examples/${filename}`
+        };
+      });
+
+      setExampleImages(examples);
+    } catch (error) {
+      console.error('加载示例图片列表失败:', error);
+    }
+  };
   const generateIconName = (filename: string): string => {
     // 移除文件扩展名和尺寸后缀
     const nameWithoutExt = filename.replace(/\.(png|jpg|jpeg|gif|svg)$/i, '');
@@ -776,87 +860,13 @@ function App() {
     }
   };
 
-  // 示例图片数据 - 只展示296×152的图片
-  const exampleImages = [
-    {
-      id: 'template1',
-      name: '模板样式1',
-      size: '296×152',
-      preview: '/examples/template_1.png'
-    },
-    {
-      id: 'template2',
-      name: '模板样式2',
-      size: '296×152',
-      preview: '/examples/template_2.png'
-    },
-    {
-      id: 'template3',
-      name: '模板样式3',
-      size: '296×152',
-      preview: '/examples/template_3.png'
-    },
-    {
-      id: 'template4',
-      name: '模板样式4',
-      size: '296×152',
-      preview: '/examples/temolate_4.png'
-    },
-    {
-      id: 'template5',
-      name: '模板样式5',
-      size: '296×152',
-      preview: '/examples/template_5.jpg'
-    },
-    {
-      id: 'template6',
-      name: '模板样式6',
-      size: '296×152',
-      preview: '/examples/template_6.jpg'
-    },
-    {
-      id: 'template7',
-      name: '模板样式7',
-      size: '296×152',
-      preview: '/examples/template_7.jpg'
-    },
-    {
-      id: 'sample1',
-      name: '文字内容',
-      size: '296×152',
-      preview: '/examples/sample-296x152-text.png'
-    },
-    {
-      id: 'sample2',
-      name: '风景图片',
-      size: '296×152',
-      preview: '/examples/sample-296x152-landscape.png'
-    },
-    {
-      id: 'sample3',
-      name: '灰度测试',
-      size: '296×152',
-      preview: '/examples/gray_296x152.png'
-    },
-    {
-      id: 'sample4',
-      name: '误差扩散',
-      size: '296×152',
-      preview: '/examples/dithered_floyd_steinberg_296x152.png'
-    },
-    {
-      id: 'sample5',
-      name: '有序抖动',
-      size: '296×152',
-      preview: '/examples/dithered_ordered_296x152.png'
-    },
-    {
-      id: 'sample6',
-      name: '随机抖动',
-      size: '296×152',
-      preview: '/examples/dithered_random_296x152.png'
-    }
-  ];
+  // 示例图片数据 - 从public/examples目录动态加载
+  const [exampleImages, setExampleImages] = useState<Array<{
+    id: string;
+    name: string;
+    size: string;
+    preview: string;
+  }>>([]);
 
   // 选择示例图片
   const selectExampleImage = async (imagePath: string) => {
@@ -1542,7 +1552,7 @@ function App() {
             className={`tab-button ${activeTab === 'text-to-image' ? 'active' : ''}`}
             onClick={() => setActiveTab('text-to-image')}
           >
-            文转图
+            制图
           </button>
         </div>
         
@@ -1975,13 +1985,13 @@ function App() {
                   {textToImagePreview ? (
                     <img 
                       src={textToImagePreview} 
-                      alt="文转图预览" 
+                      alt="制图预览" 
                       className="preview-image"
                     />
                   ) : (
                     <div className="image-placeholder">
                       <span className="placeholder-icon">📝</span>
-                      <p>文转图预览</p>
+                      <p>制图预览</p>
                     </div>
                   )}
                   {textToImageConfig.link && (
@@ -2259,7 +2269,7 @@ function App() {
                   className="action-button send-button"
                   onClick={async () => {
                     if (textToImagePreview && textToImageConfig.texts.length > 0) {
-                      console.log('发送文转图:', { textToImageConfig, textToImagePreview });
+                      console.log('发送制图:', { textToImageConfig, textToImagePreview });
                       
                       // 获取当前选择的设备
                       const currentDevice = getCurrentDevice();
@@ -2269,7 +2279,7 @@ function App() {
                       }
 
                       try {
-                        showToast('正在发送文转图...', 'info');
+                        showToast('正在发送制图...', 'info');
                         
                         // 调用Rust函数发送到API
                         const result = await invoke('send_image_to_api', {
@@ -2280,14 +2290,14 @@ function App() {
                         });
                         
                         console.log('API响应:', result);
-                        clearToastsByKeyword('正在发送文转图');
+                        clearToastsByKeyword('正在发送制图');
                         setTimeout(() => {
-                          showToast('文转图发送成功！(296×152)', 'success');
+                          showToast('制图发送成功！(296×152)', 'success');
                         }, 50);
                         
                       } catch (error) {
                         console.error('发送失败:', error);
-                        clearToastsByKeyword('正在发送文转图');
+                        clearToastsByKeyword('正在发送制图');
                         setTimeout(() => {
                           showToast(`发送失败：${error}`, 'error');
                         }, 50);

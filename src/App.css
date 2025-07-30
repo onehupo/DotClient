@@ -1763,7 +1763,7 @@ button {
   padding: 4px 8px;
   border-radius: 6px;
   display: inline-block;
-  align-self: flex-start;
+  align-self: center;
   border: 1px solid rgba(139, 92, 246, 0.2);
 }
 
@@ -2202,8 +2202,10 @@ button {
 .example-icons-modal {
   max-width: 500px;
   width: 90%;
-  max-height: 70vh;
-  overflow-y: auto;
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .example-icons-modal .modal-header {
