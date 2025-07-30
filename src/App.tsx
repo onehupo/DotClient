@@ -21,13 +21,19 @@ function App() {
   const [selectedAlgorithm, setSelectedAlgorithm] = useState("original");
   const [showSettings, setShowSettings] = useState(false);
   const [settings, setSettings] = useState({
-    apiKey: "",
-    serialNumber: ""
+    devices: [] as Array<{
+      id: string;
+      apiKey: string;
+      serialNumber: string;
+      nickname: string;
+    }>,
+    selectedDeviceId: ""
   });
   const [showTools, setShowTools] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
   const [showExamples, setShowExamples] = useState(false);
   const [showExampleIcons, setShowExampleIcons] = useState(false);
+  const [showDeviceSelector, setShowDeviceSelector] = useState(false);
   const [toasts, setToasts] = useState<Array<{
     id: string;
     message: string;
@@ -49,7 +55,49 @@ function App() {
     // 加载保存的设置
     const savedSettings = localStorage.getItem('appSettings');
     if (savedSettings) {
-      setSettings(JSON.parse(savedSettings));
+      const parsedSettings = JSON.parse(savedSettings);
+      // 兼容旧版本设置
+      if (parsedSettings.apiKey && parsedSettings.serialNumber) {
+        // 迁移旧设置到新格式
+        const migratedSettings = {
+          devices: [{
+            id: '1',
+            apiKey: parsedSettings.apiKey,
+            serialNumber: parsedSettings.serialNumber,
+            nickname: ''
+          }],
+          selectedDeviceId: '1'
+        };
+        setSettings(migratedSettings);
+        localStorage.setItem('appSettings', JSON.stringify(migratedSettings));
+      } else if (parsedSettings.devices && parsedSettings.devices.length > 0) {
+        // 使用新格式设置
+        setSettings(parsedSettings);
+      } else {
+        // 创建默认设备
+        const defaultSettings = {
+          devices: [{
+            id: '1',
+            apiKey: '',
+            serialNumber: '',
+            nickname: ''
+          }],
+          selectedDeviceId: '1'
+        };
+        setSettings(defaultSettings);
+      }
+    } else {
+      // 创建默认设备
+      const defaultSettings = {
+        devices: [{
+          id: '1',
+          apiKey: '',
+          serialNumber: '',
+          nickname: ''
+        }],
+        selectedDeviceId: '1'
+      };
+      setSettings(defaultSettings);
     }
   }, []);
 
@@ -67,6 +115,24 @@ function App() {
   useEffect(() => {
     // 这个useEffect现在主要用于其他场景的自动更新，算法按钮点击时会直接调用handleAlgorithmChange
   }, [selectedAlgorithm]);
+
+  // 处理点击外部区域关闭设备选择器
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      const target = event.target as Element;
+      if (!target.closest('.device-selector-container')) {
+        setShowDeviceSelector(false);
+      }
+    };
+
+    if (showDeviceSelector) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showDeviceSelector]);
 
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
@@ -282,6 +348,11 @@ function App() {
     localStorage.setItem('appSettings', JSON.stringify(settings));
     setShowSettings(false);
     showToast('设置已保存！', 'success');
+  };
+
+  // 获取当前选择的设备
+  const getCurrentDevice = () => {
+    return settings.devices.find(device => device.id === settings.selectedDeviceId) || settings.devices[0];
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -583,6 +654,41 @@ function App() {
           </div>
         ))}
       </div>
+
+      {/* 设备选择按钮 - 左侧悬浮 */}
+      {settings.devices.length > 0 && (
+        <div className={`device-selector-container ${showDeviceSelector ? 'open' : ''}`}>
+          <button 
+            className="device-selector-button"
+            onClick={() => setShowDeviceSelector(!showDeviceSelector)}
+            title="选择设备"
+          >
+            {(() => {
+              const currentDevice = getCurrentDevice();
+              return currentDevice ? 
+                (currentDevice.nickname || currentDevice.serialNumber || `设备 ${currentDevice.id.slice(-4)}`) :
+                '选择设备';
+            })()}
+          </button>
+          
+          {showDeviceSelector && (
+            <div className="device-dropdown-menu">
+              {settings.devices.map((device) => (
+                <div 
+                  key={device.id} 
+                  className={`device-dropdown-item ${device.id === settings.selectedDeviceId ? 'selected' : ''}`}
+                  onClick={() => {
+                    setSettings({...settings, selectedDeviceId: device.id});
+                    setShowDeviceSelector(false);
+                  }}
+                >
+                  {device.nickname || device.serialNumber || `设备 ${device.id.slice(-4)}`}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* 示例图标按钮 */}
       <button 
@@ -925,28 +1031,97 @@ function App() {
       {/* 设置模态框 */}
       {showSettings && (
         <div className="modal-overlay" onClick={closeSettings}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div className="modal-content devices-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>设置</h3>
+              <h3>设备管理</h3>
             </div>
             <div className="modal-body">
-              <div className="setting-item">
-                <label>API密钥:</label>
-                <input
-                  type="text"
-                  value={settings.apiKey}
-                  onChange={(e) => setSettings({...settings, apiKey: e.target.value})}
-                  placeholder="输入API密钥"
-                />
-              </div>
-              <div className="setting-item">
-                <label>设备ID (Device ID):</label>
-                <input
-                  type="text"
-                  value={settings.serialNumber}
-                  onChange={(e) => setSettings({...settings, serialNumber: e.target.value})}
-                  placeholder="输入设备ID"
-                />
+              <div className="devices-list">
+                {settings.devices.map((device, index) => (
+                  <div key={device.id} className="device-item">
+                    <div className="device-header">
+                      <h4>设备 {index + 1}</h4>
+                      <button 
+                        className="delete-device-btn"
+                        onClick={() => {
+                          const newDevices = settings.devices.filter(d => d.id !== device.id);
+                          const newSettings = {
+                            ...settings,
+                            devices: newDevices,
+                            selectedDeviceId: settings.selectedDeviceId === device.id 
+                              ? (newDevices.length > 0 ? newDevices[0].id : "")
+                              : settings.selectedDeviceId
+                          };
+                          setSettings(newSettings);
+                        }}
+                        disabled={settings.devices.length <= 1}
+                      >
+                        删除
+                      </button>
+                    </div>
+                    <div className="setting-item">
+                      <label>设备备注:</label>
+                      <input
+                        type="text"
+                        value={device.nickname}
+                        onChange={(e) => {
+                          const newDevices = settings.devices.map(d => 
+                            d.id === device.id ? {...d, nickname: e.target.value} : d
+                          );
+                          setSettings({...settings, devices: newDevices});
+                        }}
+                        placeholder="设备备注（可选）"
+                      />
+                    </div>
+                    <div className="setting-item">
+                      <label>API密钥:</label>
+                      <input
+                        type="text"
+                        value={device.apiKey}
+                        onChange={(e) => {
+                          const newDevices = settings.devices.map(d => 
+                            d.id === device.id ? {...d, apiKey: e.target.value} : d
+                          );
+                          setSettings({...settings, devices: newDevices});
+                        }}
+                        placeholder="输入API密钥"
+                      />
+                    </div>
+                    <div className="setting-item">
+                      <label>设备ID (Device ID):</label>
+                      <input
+                        type="text"
+                        value={device.serialNumber}
+                        onChange={(e) => {
+                          const newDevices = settings.devices.map(d => 
+                            d.id === device.id ? {...d, serialNumber: e.target.value} : d
+                          );
+                          setSettings({...settings, devices: newDevices});
+                        }}
+                        placeholder="输入设备ID"
+                      />
+                    </div>
+                  </div>
+                ))}
+                
+                <button 
+                  className="add-device-btn"
+                  onClick={() => {
+                    const newDevice = {
+                      id: Date.now().toString(),
+                      apiKey: "",
+                      serialNumber: "",
+                      nickname: ""
+                    };
+                    setSettings({
+                      ...settings,
+                      devices: [...settings.devices, newDevice],
+                      selectedDeviceId: settings.selectedDeviceId || newDevice.id
+                    });
+                  }}
+                >
+                  + 添加设备
+                </button>
               </div>
             </div>
             <div className="modal-footer">
@@ -956,6 +1131,8 @@ function App() {
           </div>
         </div>
       )}
+
+
 
       <div className="tab-container">
         <div className="tab-buttons">
@@ -1078,8 +1255,9 @@ function App() {
                     console.log('发送配置:', previewConfig);
                     console.log('使用设置:', settings);
                     
-                    // 检查必要的设置
-                    if (!settings.apiKey || !settings.serialNumber) {
+                    // 获取当前选择的设备
+                    const currentDevice = getCurrentDevice();
+                    if (!currentDevice || !currentDevice.apiKey || !currentDevice.serialNumber) {
                       showToast('请先配置API密钥和设备ID', 'error');
                       return;
                     }
@@ -1089,8 +1267,8 @@ function App() {
                       
                       // 调用Rust函数发送到API
                       const result = await invoke('send_text_to_api', {
-                        apiKey: settings.apiKey,
-                        deviceId: settings.serialNumber,
+                        apiKey: currentDevice.apiKey,
+                        deviceId: currentDevice.serialNumber,
                         title: previewConfig.title,
                         message: previewConfig.message,
                         signature: previewConfig.signature,
@@ -1312,8 +1490,9 @@ function App() {
                       console.log('发送图片:', { imagePreview, base64Input, selectedAlgorithm });
                       console.log('使用设置:', settings);
                       
-                      // 检查必要的设置
-                      if (!settings.apiKey || !settings.serialNumber) {
+                      // 获取当前选择的设备
+                      const currentDevice = getCurrentDevice();
+                      if (!currentDevice || !currentDevice.apiKey || !currentDevice.serialNumber) {
                         showToast('请先配置API密钥和设备ID', 'error');
                         return;
                       }
@@ -1324,8 +1503,8 @@ function App() {
                           // 如果选择原始图片，先调整尺寸然后发送
                           const resizedImageData = await resizeImageTo296x152(imagePreview);
                           const result = await invoke('send_image_to_api', {
-                            apiKey: settings.apiKey,
-                            deviceId: settings.serialNumber,
+                            apiKey: currentDevice.apiKey,
+                            deviceId: currentDevice.serialNumber,
                             imageData: resizedImageData,
                             link: imageConfig.link.trim() || null
                           });
@@ -1349,8 +1528,8 @@ function App() {
                           
                           // 调用Rust函数发送到API
                           const result = await invoke('send_image_to_api', {
-                            apiKey: settings.apiKey,
-                            deviceId: settings.serialNumber,
+                            apiKey: currentDevice.apiKey,
+                            deviceId: currentDevice.serialNumber,
                             imageData: resizedImageData,
                             link: imageConfig.link.trim() || null
                           });
