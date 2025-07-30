@@ -2960,6 +2960,44 @@ button {
   max-width: 78px;
 }
 
+/* 字体选择器的特殊样式 - 需要更宽的空间来显示长字体名称 */
+.config-row .config-item.font-select {
+  max-width: 180px;
+  min-width: 140px;
+  flex-shrink: 0;
+}
+
+.font-family-select {
+  max-width: 100% !important;
+  min-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding-right: 20px; /* 为下拉箭头留出空间 */
+}
+
+.font-family-select option {
+  padding: 4px 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  /* 在支持的浏览器中，选项会用相应的字体显示 */
+}
+
+/* 确保字体选择器在小屏幕上的表现 */
+@media (max-width: 768px) {
+  .config-row .config-item.font-select {
+    max-width: 140px;
+    min-width: 120px;
+  }
+  
+  .font-family-select {
+    min-width: 120px;
+    font-size: 11px;
+  }
+}
+
 .config-row .config-item.text-input {
   max-width: 100%;
   min-width: 100%;
@@ -3040,6 +3078,24 @@ button {
 .dark-mode .config-row .config-item select:focus {
   border-color: #60a5fa;
   box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.1);
+}
+
+/* 深色模式下的字体选择器样式 */
+.dark-mode .font-family-select {
+  background: #374151;
+  color: #f3f4f6;
+  border-color: #4b5563;
+}
+
+.dark-mode .font-family-select:focus {
+  border-color: #60a5fa;
+  box-shadow: 0 0 0 2px rgba(96, 165, 250, 0.1);
+}
+
+.dark-mode .font-family-select option {
+  background: #374151;
+  color: #f3f4f6;
+  padding: 4px 8px;
 }
 
 .dark-mode .color-button.selected {

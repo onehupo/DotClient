@@ -28,7 +28,7 @@ function App() {
       fontWeight: "normal" | "bold";
       textAlign: "left" | "center" | "right";
       color: "white" | "black" | "gray";
-      fontFamily: "Arial" | "Georgia" | "Times New Roman" | "Courier New" | "Helvetica" | "Verdana";
+      fontFamily: string;
     }>,
     link: ""
   });
@@ -38,6 +38,9 @@ function App() {
   const [base64Input, setBase64Input] = useState("");
   const [selectedAlgorithm, setSelectedAlgorithm] = useState("original");
   const [showSettings, setShowSettings] = useState(false);
+  const [availableFonts, setAvailableFonts] = useState<string[]>([
+    "Arial", "Georgia", "Times New Roman", "Courier New", "Helvetica", "Verdana"
+  ]); // 默认字体列表
   const [settings, setSettings] = useState({
     devices: [] as Array<{
       id: string;
@@ -59,8 +62,114 @@ function App() {
     timeoutId?: number;
   }>>([]);
 
+  // 获取系统支持的字体列表
+  const getSystemFonts = async (): Promise<string[]> => {
+    try {
+      // 检查浏览器是否支持字体查询API
+      if ('queryLocalFonts' in window) {
+        const fonts = await (window as any).queryLocalFonts();
+        const fontFamilies = [...new Set(fonts.map((font: any) => font.family))]
+          .filter((family): family is string => typeof family === 'string')
+          .sort();
+        return fontFamilies;
+      }
+    } catch (error) {
+      console.warn('无法获取系统字体列表:', error);
+    }
+
+    // 如果无法获取系统字体，使用常见字体检测
+    const testFonts = [
+      // 系统默认字体 
+      'Arial', 'Helvetica', 'Times New Roman', 'Times', 'Courier New', 'Courier',
+      'Verdana', 'Georgia', 'Palatino', 'Garamond', 'Bookman', 'Comic Sans MS',
+      'Trebuchet MS', 'Arial Black', 'Impact',
+      // 中文字体
+      'Microsoft YaHei', '微软雅黑', 'SimSun', '宋体', 'SimHei', '黑体', 
+      'KaiTi', '楷体', 'FangSong', '仿宋', 'PingFang SC', 'Hiragino Sans GB',
+      'STHeiti', 'STKaiti', 'STSong', 'STFangsong',
+      // macOS 字体
+      'San Francisco', 'SF Pro Display', 'SF Pro Text', 'Helvetica Neue', 'Avenir', 
+      'Menlo', 'Monaco', 'Lucida Grande', 'Apple Color Emoji',
+      // Windows 字体
+      'Segoe UI', 'Tahoma', 'Calibri', 'Consolas', 'Cambria', 'Arial Unicode MS',
+      // 网络字体常见选择
+      'Roboto', 'Open Sans', 'Lato', 'Montserrat', 'Source Sans Pro', 'Noto Sans'
+    ];
+
+    console.log('开始检测可用字体...');
+    const availableFonts = testFonts.filter(font => {
+      const isAvailable = isFontAvailable(font);
+      if (isAvailable) {
+        console.log('✓ 字体可用:', font);
+      }
+      return isAvailable;
+    });
+    
+    console.log('检测完成，可用字体数量:', availableFonts.length);
+    return availableFonts;
+  };
+
+  // 检测字体是否可用
+  const isFontAvailable = (fontName: string): boolean => {
+    try {
+      const canvas = document.createElement('canvas');
+      const context = canvas.getContext('2d');
+      if (!context) return false;
+
+      // 使用更具区分性的测试字符串
+      const testString = 'abcdefghijklmnopqrstuvwxyz0123456789';
+      const testSize = '12px';
+      const fallbackFonts = ['serif', 'sans-serif', 'monospace'];
+
+      // 测试每个fallback字体
+      const measurements = fallbackFonts.map(fallback => {
+        context.font = `${testSize} ${fallback}`;
+        return context.measureText(testString).width;
+      });
+
+      // 测试目标字体 + fallback
+      const targetMeasurements = fallbackFonts.map(fallback => {
+        context.font = `${testSize} "${fontName}", ${fallback}`;
+        return context.measureText(testString).width;
+      });
+
+      // 如果任何一个测量值不同，说明字体存在
+      return measurements.some((width, index) => 
+        Math.abs(width - targetMeasurements[index]) > 0.1
+      );
+    } catch (error) {
+      console.warn(`字体检测失败 ${fontName}:`, error);
+      return false;
+    }
+  };
+
+  // 截断长字体名称用于显示
+  const truncateFontName = (fontName: string, maxLength: number = 20): string => {
+    if (fontName.length <= maxLength) {
+      return fontName;
+    }
+    return fontName.substring(0, maxLength - 3) + '...';
+  };
+
   // 初始化时检查系统主题偏好和设置
   useEffect(() => {
+    // 获取系统字体
+    const loadSystemFonts = async () => {
+      try {
+        console.log('开始获取系统字体...');
+        const systemFonts = await getSystemFonts();
+        console.log('获取到的字体列表:', systemFonts);
+        if (systemFonts.length > 0) {
+          setAvailableFonts(systemFonts);
+          console.log('字体列表已更新，共', systemFonts.length, '个字体');
+        }
+      } catch (error) {
+        console.warn('加载系统字体失败，使用默认字体列表:', error);
+      }
+    };
+    
+    loadSystemFonts();
+
     const savedTheme = localStorage.getItem('darkMode');
     if (savedTheme) {
       setDarkMode(JSON.parse(savedTheme));
@@ -378,7 +487,7 @@ function App() {
       fontWeight: "normal" as "normal" | "bold",
       textAlign: "center" as "left" | "center" | "right",
       color: (textToImageConfig.backgroundColor === "white" ? "black" : "white") as "white" | "black" | "gray",
-      fontFamily: "Arial" as "Arial" | "Georgia" | "Times New Roman" | "Courier New" | "Helvetica" | "Verdana"
+      fontFamily: availableFonts[0] || "Arial"
     };
     setTextToImageConfig({
       ...textToImageConfig,
@@ -1948,18 +2057,24 @@ function App() {
                                     <option value="gray">灰色</option>
                                   </select>
                                 </div>
-                                <div className="config-item select-input">
+                                <div className="config-item select-input font-select">
                                   <label>字体:</label>
                                   <select
                                     value={text.fontFamily}
-                                    onChange={(e) => updateText(text.id, { fontFamily: e.target.value as "Arial" | "Georgia" | "Times New Roman" | "Courier New" | "Helvetica" | "Verdana" })}
+                                    onChange={(e) => updateText(text.id, { fontFamily: e.target.value })}
+                                    className="font-family-select"
+                                    title={text.fontFamily} // 添加tooltip显示完整字体名称
+                                    disabled={availableFonts.length === 0}
                                   >
-                                    <option value="Arial">Arial</option>
-                                    <option value="Georgia">Georgia</option>
-                                    <option value="Times New Roman">Times New Roman</option>
-                                    <option value="Courier New">Courier New</option>
-                                    <option value="Helvetica">Helvetica</option>
-                                    <option value="Verdana">Verdana</option>
+                                    {availableFonts.length === 0 ? (
+                                      <option value="">加载字体中...</option>
+                                    ) : (
+                                      availableFonts.map(font => (
+                                        <option key={font} value={font} style={{ fontFamily: font }} title={font}>
+                                          {truncateFontName(font, 25)}
+                                        </option>
+                                      ))
+                                    )}
                                   </select>
                                 </div>
                               </div>
