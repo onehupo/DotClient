@@ -8,6 +8,8 @@
     "opener:default",
     "fs:allow-write-file",
     "fs:allow-download-write",
-    "core:path:default"
+    "core:path:default",
+    "clipboard-manager:allow-write-text",
+    "clipboard-manager:allow-read-text"
   ]
 }

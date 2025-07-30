@@ -253,9 +253,9 @@ button {
 }
 
 .preview-title {
-  font-size: 18px;
+  font-size: 22px;
   font-weight: 600;
-  color: #333 !important;
+  color: #000 !important;
   margin: 0;
   text-align: left;
 }
@@ -268,8 +268,8 @@ button {
 }
 
 .preview-message {
-  font-size: 16px;
-  color: #666 !important;
+  font-size: 18px;
+  color: #000 !important;
   line-height: 1.4;
   word-wrap: break-word;
 }
@@ -306,9 +306,9 @@ button {
 }
 
 .preview-signature {
-  font-size: 14px;
-  color: #888 !important;
-  font-style: italic;
+  font-size: 16px;
+  color: #000 !important;
+  font-style: normal;
 }
 
 .preview-link-indicator {

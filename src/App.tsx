@@ -169,6 +169,7 @@ function App() {
     };
     
     loadSystemFonts();
+    loadIconsFromPublic(); // 加载图标列表
 
     const savedTheme = localStorage.getItem('darkMode');
     if (savedTheme) {
@@ -687,29 +688,93 @@ function App() {
                           previewConfig.message.trim() && 
                           previewConfig.signature.trim();
 
-  // 示例图标数据 - 40×40图标
-  const exampleIcons = [
-    {
-      id: 'icon1',
-      name: '黑色方块',
-      base64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAKKADAAQAAAABAAAAKAAAAAB65masAAAAYElEQVRYCe3SsQ2AQAwEQfP99wwE38EmDgbpw5Ws4Z6Zef+39jtrL7uHObD+IYIEq0DtbZBgFai9DRKsArW3QYJVoPY2SLAK1N4GCVaB2tsgwSpQexskWAVqb4MEq0DtPxP3AU9rhblDAAAAAElFTkSuQmCC'
-    },
-    {
-      id: 'icon2',
-      name: '白色方块',
-      base64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAYAAACM/rhtAAAAAXNSR0IArs4c6QAAAERlWElmTU0AKgAAAAgAAYdpAAQAAAABAAAAGgAAAAAAA6ABAAMAAAABAAEAAKACAAQAAAABAAAAKKADAAQAAAABAAAAKAAAAAB65masAAAAXElEQVRYCe3SwQ0AEBQFQfTfM6KFuTis+yY/48193/j4rY9ve6d1oP5QggmqgPZtMEEV0L4NJqgC2rfBBFVA+zaYoApo3wYTVAHt22CCKqB9G0xQBbRvgwmqgPYHPuoETA4WTIoAAAAASUVORK5CYII='
-    },
-    {
-      id: 'icon3', 
-      name: '棋盘图案',
-      base64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAAAAACpleexAAAAOklEQVR4nO2RsQkAMAzD5P7/c/qBCbQhizVlCAgjAVAAstehyeKjGjs0ox4YA6TMuzplLCnzR50ylgvm2yBFvCCk5QAAAABJRU5ErkJggg=='
-    },
-    {
-      id: 'icon4',
-      name: '圆形图标',
-      base64: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACgAAAAoCAAAAACpleexAAAA4UlEQVR4nMVUSxLFIAgLTu9/5byFUsFAu+o8Np3GED4iRpxmUAwYBVbaV0R7Jxonb+e/nJgY/rmZSTod2U3gojEIM0hsnCmDW56xGIDKm38O2U66upANjkfeTDIR+07aoVgKBnQ8BY7BryaW+OlQWMzsJIbIBpAMzBX7VFxdp2heEmNq88SLYtQMwOWz9GaqaOpKaDGrCpmkPbixP64Sj7ThzLw+x+bWhx92hXtSIyA1Lyu2UyaPq5E0eVzpaSbXrGgAZWIsTlFaKcWmkJWSMkhluIiUe16hB636Ur3JP+7wH9LnUEN7qhbeAAAAAElFTkSuQmCC'
+  // 示例图标数据 - 40×40图标（从public/icons目录加载）
+  const [exampleIcons, setExampleIcons] = useState<Array<{
+    id: string;
+    name: string;
+    path: string;
+  }>>([]);
+
+  // 生成图标显示名称
+  const generateIconName = (filename: string): string => {
+    // 移除文件扩展名和尺寸后缀
+    const nameWithoutExt = filename.replace(/\.(png|jpg|jpeg|gif|svg)$/i, '');
+    const nameWithoutSize = nameWithoutExt.replace(/_\d+x\d+$/, '');
+    
+    // 图标名称映射
+    const iconNameMap: { [key: string]: string } = {
+      'add': '添加',
+      'alarm': '闹钟',
+      'bookmark': '书签',
+      'business': '商务',
+      'camera': '相机',
+      'cancel': '取消',
+      'chat': '聊天',
+      'check': '确认',
+      'cloud': '云端',
+      'dashboard': '仪表板',
+      'delete': '删除',
+      'download': '下载',
+      'edit': '编辑',
+      'email': '邮件',
+      'error': '错误',
+      'help': '帮助',
+      'home': '主页',
+      'info': '信息',
+      'link': '链接',
+      'lock': '锁定',
+      'map': '地图',
+      'menu': '菜单',
+      'pause': '暂停',
+      'phone': '电话',
+      'print': '打印',
+      'refresh': '刷新',
+      'restaurant': '餐厅',
+      'save': '保存',
+      'school': '学校',
+      'search': '搜索',
+      'settings': '设置',
+      'share': '分享',
+      'star': '星标',
+      'stop': '停止',
+      'today': '今天',
+      'upload': '上传',
+      'work': '工作',
+      'sample-icon': '示例图标',
+      'sample-pattern': '示例图案'
+    };
+    
+    return iconNameMap[nameWithoutSize] || nameWithoutSize;
+  };
+
+  // 加载public/icons目录下的图标
+  const loadIconsFromPublic = async () => {
+    try {
+      // 获取public/icons目录下的所有PNG文件
+      const iconFilenames = [
+        'add_40x40.png', 'alarm_40x40.png', 'bookmark_40x40.png', 'business_40x40.png',
+        'camera_40x40.png', 'cancel_40x40.png', 'chat_40x40.png', 'check_40x40.png',
+        'cloud_40x40.png', 'dashboard_40x40.png', 'delete_40x40.png', 'download_40x40.png',
+        'edit_40x40.png', 'email_40x40.png', 'error_40x40.png', 'help_40x40.png',
+        'home_40x40.png', 'info_40x40.png', 'link_40x40.png', 'lock_40x40.png',
+        'map_40x40.png', 'menu_40x40.png', 'pause_40x40.png', 'phone_40x40.png',
+        'print_40x40.png', 'refresh_40x40.png', 'restaurant_40x40.png', 'save_40x40.png',
+        'school_40x40.png', 'search_40x40.png', 'settings_40x40.png', 'share_40x40.png',
+        'star_40x40.png', 'stop_40x40.png', 'today_40x40.png', 'upload_40x40.png',
+        'work_40x40.png', 'sample-40x40-icon.png'
+      ];
+
+      const icons = iconFilenames.map((filename, index) => ({
+        id: `icon_${index + 1}`,
+        name: generateIconName(filename),
+        path: `/icons/${filename}`
+      }));
+
+      setExampleIcons(icons);
+    } catch (error) {
+      console.error('加载图标列表失败:', error);
     }
-  ];
+  };
 
   // 示例图片数据 - 只展示296×152的图片
   const exampleImages = [
@@ -841,16 +906,71 @@ function App() {
   };
 
   // 复制图标base64
-  const copyIconBase64 = async (iconBase64: string) => {
+  const copyIconBase64 = async (icon: { id: string; name: string; path: string }) => {
     try {
-      // 去掉data:image前缀，只保留纯base64数据
-      const base64Data = iconBase64.includes(',') ? iconBase64.split(',')[1] : iconBase64;
-      await navigator.clipboard.writeText(base64Data);
-      showToast('图标Base64已复制到剪贴板！', 'success');
-      closeExampleIcons();
+      showToast('正在转换图标...', 'info');
+      
+      // 通过fetch获取文件
+      const response = await fetch(icon.path);
+      if (!response.ok) {
+        throw new Error('无法加载图标文件');
+      }
+      
+      const blob = await response.blob();
+      const file = new File([blob], `${icon.name}.png`, { type: blob.type });
+      
+      // 使用FileReader转换为base64
+      const reader = new FileReader();
+      reader.onload = async (event) => {
+        const result = event.target?.result as string;
+        // 去掉data:image前缀，只保留纯base64数据
+        const base64Data = result.includes(',') ? result.split(',')[1] : result;
+        
+        console.log('转换完成，base64数据长度:', base64Data.length);
+        
+        // 清除"正在转换"的 toast
+        clearToastsByKeyword('正在转换图标');
+        
+        // 尝试使用 Tauri 剪贴板管理器复制
+        try {
+          // 导入 Tauri 剪贴板管理器
+          const { writeText } = await import('@tauri-apps/plugin-clipboard-manager');
+          await writeText(base64Data);
+          console.log('使用 Tauri clipboard-manager 复制成功');
+          showToast(`已复制 ${icon.name} 的Base64数据！`, 'success');
+        } catch (tauriError) {
+          console.error('Tauri clipboard-manager 失败:', tauriError);
+          
+          // 回退到浏览器剪贴板API
+          try {
+            if (navigator.clipboard && window.isSecureContext) {
+              await navigator.clipboard.writeText(base64Data);
+              console.log('使用 navigator.clipboard 复制成功');
+              showToast(`已复制 ${icon.name} 的Base64数据！`, 'success');
+            } else {
+              // 最终回退：输出到控制台
+              console.log('Base64数据:', base64Data);
+              showToast('Tauri剪贴板功能不可用，Base64数据已输出到控制台，请打开开发者工具查看', 'info');
+            }
+          } catch (fallbackError) {
+            console.error('所有剪贴板方法都失败:', fallbackError);
+            console.log('Base64数据:', base64Data);
+            showToast('复制失败，Base64数据已输出到控制台，请打开开发者工具查看', 'info');
+          }
+        }
+      };
+      
+      reader.onerror = () => {
+        clearToastsByKeyword('正在转换图标');
+        showToast('文件读取失败', 'error');
+      };
+      
+      reader.readAsDataURL(file);
+      
     } catch (error) {
-      console.error('复制失败:', error);
-      showToast('复制失败，请重试', 'error');
+      console.error('图标转换失败:', error);
+      clearToastsByKeyword('正在转换图标');
+      showToast(`转换失败：${error}`, 'error');
     }
   };
 
@@ -1026,11 +1146,11 @@ function App() {
                   <div 
                     key={icon.id} 
                     className="example-icon-item"
-                    onClick={() => copyIconBase64(icon.base64)}
+                    onClick={() => copyIconBase64(icon)}
                   >
                     <div className="example-icon-preview">
                       <img 
-                        src={icon.base64} 
+                        src={icon.path} 
                         alt={icon.name}
                         className="example-icon-image"
                         onError={(e) => {
@@ -2015,7 +2135,7 @@ function App() {
                                     value={text.fontSize}
                                     onChange={(e) => updateText(text.id, { fontSize: parseInt(e.target.value) || 12 })}
                                     min="8"
-                                    max="72"
+                                    max="144"
                                   />
                                 </div>
                                 <div className="config-item number-input">
@@ -2024,8 +2144,8 @@ function App() {
                                     type="number"
                                     value={text.rotation}
                                     onChange={(e) => updateText(text.id, { rotation: parseInt(e.target.value) || 0 })}
-                                    min="-180"
-                                    max="180"
+                                    min="-360"
+                                    max="360"
                                   />
                                 </div>
                                 <div className="config-item select-input">

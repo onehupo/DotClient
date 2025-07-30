@@ -352,13 +352,21 @@ async fn send_image_to_api(
     Ok(result_text)
 }
 
+#[tauri::command]
+async fn copy_to_clipboard(text: String) -> Result<String, String> {
+    // 这个函数现在将通过前端的clipboard-manager插件调用，而不是直接在Rust中实现
+    // 返回成功状态，实际复制操作由前端JS处理
+    Ok("Ready for clipboard operation".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![greet, save_image_to_downloads, process_image_with_algorithm, send_text_to_api, send_image_to_api])
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .invoke_handler(tauri::generate_handler![greet, save_image_to_downloads, process_image_with_algorithm, send_text_to_api, send_image_to_api, copy_to_clipboard])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
