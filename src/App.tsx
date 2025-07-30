@@ -1326,24 +1326,40 @@ function App() {
                         删除
                       </button>
                     </div>
-                    <div className="setting-item">
-                      <label>设备备注:</label>
-                      <input
-                        type="text"
-                        value={device.nickname}
-                        onChange={(e) => {
-                          const newDevices = settings.devices.map(d => 
-                            d.id === device.id ? {...d, nickname: e.target.value} : d
-                          );
-                          setSettings({...settings, devices: newDevices});
-                        }}
-                        placeholder="设备备注（可选）"
-                      />
+                    <div className="setting-item device-name-id-row">
+                      <div className="setting-input-group">
+                        <label>设备备注:</label>
+                        <input
+                          type="text"
+                          value={device.nickname}
+                          onChange={(e) => {
+                            const newDevices = settings.devices.map(d => 
+                              d.id === device.id ? {...d, nickname: e.target.value} : d
+                            );
+                            setSettings({...settings, devices: newDevices});
+                          }}
+                          placeholder="设备备注（可选）"
+                        />
+                      </div>
+                      <div className="setting-input-group">
+                        <label>设备ID:</label>
+                        <input
+                          type="text"
+                          value={device.serialNumber}
+                          onChange={(e) => {
+                            const newDevices = settings.devices.map(d => 
+                              d.id === device.id ? {...d, serialNumber: e.target.value} : d
+                            );
+                            setSettings({...settings, devices: newDevices});
+                          }}
+                          placeholder="输入设备ID"
+                        />
+                      </div>
                     </div>
                     <div className="setting-item">
                       <label>API密钥:</label>
                       <input
-                        type="text"
+                        type="password"
                         value={device.apiKey}
                         onChange={(e) => {
                           const newDevices = settings.devices.map(d => 
@@ -1352,20 +1368,7 @@ function App() {
                           setSettings({...settings, devices: newDevices});
                         }}
                         placeholder="输入API密钥"
-                      />
-                    </div>
-                    <div className="setting-item">
-                      <label>设备ID (Device ID):</label>
-                      <input
-                        type="text"
-                        value={device.serialNumber}
-                        onChange={(e) => {
-                          const newDevices = settings.devices.map(d => 
-                            d.id === device.id ? {...d, serialNumber: e.target.value} : d
-                          );
-                          setSettings({...settings, devices: newDevices});
-                        }}
-                        placeholder="输入设备ID"
+                        title={device.apiKey || "输入API密钥"}
                       />
                     </div>
                   </div>
@@ -1953,7 +1956,7 @@ function App() {
                       </button>
                     </div>
                     
-                    <div className="text-items-container">
+                    <div className={`text-items-container ${textToImageConfig.texts.length > 0 ? 'has-text-items' : ''}`}>
                       {textToImageConfig.texts.length === 0 ? (
                         <div className="no-text-placeholder">
                           <p>暂无文本，点击"添加文本"开始创建</p>
