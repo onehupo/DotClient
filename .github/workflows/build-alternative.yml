@@ -1,6 +1,30 @@
-name: Build and Release
+name: Build and Release (Alternative Options)
 
+# 方案1: 通过workflow_dispatch手动触发
 on:
+  workflow_dispatch:
+    inputs:
+      build_target:
+        description: 'Build target'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+        - all
+        - windows
+        - macos
+      create_release:
+        description: 'Create release after build'
+        required: false
+        default: false
+        type: boolean
+
+  # 方案2: 通过标签触发
+  push:
+    tags:
+      - 'v*'  # 只有推送标签时才构建
+    
+  # 方案3: 通过commit消息中的特定标识触发
   push:
     branches: [ main ]
   pull_request:
@@ -8,8 +32,13 @@ on:
 
 jobs:
   build:
-    # 只有当commit消息包含 [build] 标识时才执行构建
-    if: contains(github.event.head_commit.message, '[build]') || github.event_name == 'pull_request'
+    # 条件判断：手动触发 OR 标签推送 OR commit消息包含[build]标识
+    if: |
+      github.event_name == 'workflow_dispatch' || 
+      startsWith(github.ref, 'refs/tags/v') || 
+      contains(github.event.head_commit.message, '[build]') || 
+      github.event_name == 'pull_request'
+      
     strategy:
       fail-fast: false
       matrix:
@@ -69,7 +98,10 @@ jobs:
   release:
     needs: build
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push' && contains(github.event.head_commit.message, '[build]')
+    if: |
+      (github.event_name == 'workflow_dispatch' && github.event.inputs.create_release == 'true') ||
+      startsWith(github.ref, 'refs/tags/v') ||
+      (github.ref == 'refs/heads/main' && github.event_name == 'push' && contains(github.event.head_commit.message, '[build]'))
     permissions:
       contents: write
     steps:
@@ -83,13 +115,24 @@ jobs:
     - name: List artifacts (debug)
       run: find artifacts -type f -name "*" | head -20
     
+    - name: Get release tag
+      id: tag
+      run: |
+        if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+          echo "tag=manual-${{ github.run_number }}" >> $GITHUB_OUTPUT
+        elif [[ "${{ github.ref }}" == refs/tags/* ]]; then
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        else
+          echo "tag=v${{ github.run_number }}" >> $GITHUB_OUTPUT
+        fi
+    
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: v${{ github.run_number }}
-        name: Release v${{ github.run_number }}
+        tag_name: ${{ steps.tag.outputs.tag }}
+        name: Release ${{ steps.tag.outputs.tag }}
         body: |
-          自动构建版本 v${{ github.run_number }}
+          自动构建版本 ${{ steps.tag.outputs.tag }}
           
           包含以下平台的构建文件：
           - Windows x86_64
