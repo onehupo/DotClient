@@ -6,7 +6,7 @@
   <img src="./img/demo.jpg" alt="Demo" width="50%">
 </div>
 
-# 主要功能
+## 主要功能
 
  - 调用dot.的文本、图片api配置内容，图片支持灰阶转换，让黑白墨水屏显示灰度的效果
  - 通过制图页面自由定制文本的样式，包括大小、旋转、emoji等
@@ -28,6 +28,6 @@
 安装方式relase的页面，最新版本0.2.0
 
 
-# 项目架构
+## 项目架构
 
 Tauri + React + Typescript
