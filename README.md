@@ -1,6 +1,6 @@
 # DotClient客户端
 
-针对Dot.开发的墨水屏推送如箭，定制自己的文本和图案
+针对Dot.开发的墨水屏推送软件，定制自己的文本和图案
 
 <div align="center">
   <img src="./img/demo.jpg" alt="Demo" width="50%">
@@ -25,7 +25,7 @@
 
 目前支持window，mac(apple, intel)版本
 
-安装方式relase的页面，最新版本0.2.0
+安装方式查看relase的页面，最新版本0.2.0
 
 
 ## 项目架构
