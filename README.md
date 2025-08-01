@@ -3,7 +3,7 @@
 针对Dot.开发的墨水屏推送软件，定制自己的文本和图案
 
 <div align="center">
-  <img src="./img/demo.jpg" alt="Demo" width="50%">
+  <img src="./img/demo.jpg" alt="Demo" width="50%" style="border-radius: 12px;">
 </div>
 
 ## 主要功能
@@ -15,10 +15,15 @@
  - 配置多个设备，选择制定设备发送
  - 添加了base64转换工具，可以把图片转换成base64
 
+**示例图片**
+<div align="center">
+  <img src="./img/examples.jpg" alt="Eamples" width="100%" style="border-radius: 12px;">
+</div>
+
 **软件示例**
 
 <div align="center">
-  <img src="./img/software.jpg" alt="Software" width="600">
+  <img src="./img/software.jpg" alt="Software" width="100%" style="border-radius: 12px;">
 </div>
 
 **安装**
