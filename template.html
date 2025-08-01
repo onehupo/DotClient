@@ -1,0 +1,540 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>多行图片滚动展示</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Arial', sans-serif;
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4, #45b7d1, #96ceb4, #feca57, #ff9ff3);
+            background-size: 400% 400%;
+            animation: gradientShift 15s ease infinite;
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+
+        @keyframes gradientShift {
+            0% {
+                background-position: 0% 50%;
+            }
+            50% {
+                background-position: 100% 50%;
+            }
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+
+        .container {
+            padding: 20px 0;
+        }
+
+        .title {
+            text-align: center;
+            color: white;
+            font-size: 2.5rem;
+            margin-bottom: 30px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+
+        .scroll-row {
+            display: flex;
+            align-items: center;
+            margin: 18px 0;
+            overflow: hidden;
+            white-space: nowrap;
+        }
+
+        .scroll-content {
+            display: flex;
+            animation-timing-function: linear;
+            animation-iteration-count: infinite;
+        }
+
+        .image-item {
+            flex-shrink: 0;
+            margin-right: 12px;
+            border-radius: 10px;
+            overflow: hidden;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            transition: transform 0.3s ease;
+            height: 120px;
+            width: 234px; /* 严格按照296x152比例调整: 120px * (296/152) = 234px */
+            position: relative;
+        }
+
+        /* 为不同行添加不同的抖动效果 - 只在灰阶模式下生效 */
+        .grayscale-mode .row-1 .image-item::after {
+            background-image: 
+                radial-gradient(circle at 20% 20%, transparent 0.5px, rgba(0,0,0,0.15) 0.5px),
+                radial-gradient(circle at 80% 80%, transparent 0.5px, rgba(255,255,255,0.1) 0.5px);
+            background-size: 3px 3px, 5px 5px;
+        }
+
+        .grayscale-mode .row-2 .image-item::after {
+            background-image: 
+                linear-gradient(45deg, transparent 40%, rgba(0,0,0,0.1) 50%, transparent 60%),
+                linear-gradient(-45deg, transparent 40%, rgba(255,255,255,0.05) 50%, transparent 60%);
+            background-size: 4px 4px, 6px 6px;
+        }
+
+        .grayscale-mode .row-3 .image-item::after {
+            background-image: 
+                radial-gradient(circle at 33% 33%, transparent 1px, rgba(0,0,0,0.12) 1px),
+                radial-gradient(circle at 66% 66%, transparent 1px, rgba(255,255,255,0.08) 1px);
+            background-size: 5px 5px, 7px 7px;
+        }
+
+        .grayscale-mode .row-4 .image-item::after {
+            background-image: 
+                repeating-linear-gradient(45deg, transparent, transparent 1px, rgba(0,0,0,0.08) 1px, rgba(0,0,0,0.08) 2px),
+                repeating-linear-gradient(-45deg, transparent, transparent 1px, rgba(255,255,255,0.05) 1px, rgba(255,255,255,0.05) 2px);
+            background-size: 4px 4px, 6px 6px;
+        }
+
+        .grayscale-mode .row-5 .image-item::after {
+            background-image: 
+                radial-gradient(circle at 40% 60%, transparent 0.8px, rgba(0,0,0,0.1) 0.8px),
+                radial-gradient(circle at 60% 40%, transparent 0.8px, rgba(255,255,255,0.06) 0.8px);
+            background-size: 6px 6px, 8px 8px;
+        }
+
+        .image-item:hover {
+            transform: scale(1.05);
+            z-index: 10;
+            position: relative;
+        }
+
+        .image-item:hover::after {
+            opacity: 0.2;
+        }
+
+        .image-item img {
+            height: 100%;
+            width: 100%;
+            object-fit: cover;
+            display: block;
+            /* 默认不应用灰阶效果，通过类控制 */
+            image-rendering: pixelated;
+            image-rendering: -moz-crisp-edges;
+            image-rendering: crisp-edges;
+            transition: filter 0.3s ease;
+        }
+
+        /* 添加抖动效果的伪元素 */
+        .grayscale-mode .image-item::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                radial-gradient(circle at 25% 25%, transparent 1px, rgba(0,0,0,0.1) 1px),
+                radial-gradient(circle at 75% 75%, transparent 1px, rgba(255,255,255,0.1) 1px);
+            background-size: 4px 4px, 6px 6px;
+            pointer-events: none;
+            opacity: 0.3;
+            mix-blend-mode: overlay;
+        }
+
+        .grayscale-mode .image-item:hover::after {
+            opacity: 0.2;
+        }
+
+        /* 第一行：向右滚动，速度较慢 */
+        .row-1 .scroll-content {
+            animation: scrollRight 360s linear infinite;
+        }
+
+        /* 第二行：向左滚动，速度中等 */
+        .row-2 .scroll-content {
+            animation: scrollLeft 300s linear infinite;
+        }
+
+        /* 第三行：向右滚动，速度较快 */
+        .row-3 .scroll-content {
+            animation: scrollRight 240s linear infinite;
+        }
+
+        /* 第四行：向左滚动，速度最快 */
+        .row-4 .scroll-content {
+            animation: scrollLeft 200s linear infinite;
+        }
+
+        /* 第五行：向右滚动，速度很慢 */
+        .row-5 .scroll-content {
+            animation: scrollRight 400s linear infinite;
+        }
+
+        @keyframes scrollLeft {
+            0% {
+                transform: translateX(0);
+            }
+            100% {
+                transform: translateX(-50%);
+            }
+        }
+
+        @keyframes scrollRight {
+            0% {
+                transform: translateX(-50%);
+            }
+            100% {
+                transform: translateX(0);
+            }
+        }
+
+        /* 响应式设计 */
+        @media (max-width: 768px) {
+            .title {
+                font-size: 2rem;
+                margin-bottom: 20px;
+            }
+            
+            .scroll-row {
+                height: 100px;
+                margin: 10px 0;
+            }
+            
+            .image-item {
+                height: 80px;
+                width: 156px; /* 移动端严格按照296x152比例调整: 80px * (296/152) = 156px */
+                margin-right: 10px;
+            }
+        }
+
+        .description {
+            text-align: center;
+            color: white;
+            margin: 30px 20px;
+            font-size: 1.1rem;
+            opacity: 0.9;
+            line-height: 1.6;
+        }
+
+        /* 切换开关样式 */
+        .toggle-container {
+            text-align: center;
+            margin: 20px 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .toggle-switch-wrapper {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 80px;
+            height: 40px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+
+        .toggle-switch::before {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 32px;
+            height: 32px;
+            background: white;
+            border-radius: 50%;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+        }
+
+        .toggle-switch.active::before {
+            transform: translateX(42px);
+            background: #333;
+        }
+
+        .toggle-switch.active {
+            background: rgba(0, 0, 0, 0.3);
+        }
+
+        .toggle-label {
+            color: white;
+            font-size: 1.1rem;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            font-weight: 500;
+        }
+
+        .toggle-text {
+            color: white;
+            font-size: 1rem;
+            font-weight: bold;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+            transition: all 0.3s ease;
+            min-width: 40px;
+        }
+
+        .toggle-text.left {
+            opacity: 1;
+        }
+
+        .toggle-text.right {
+            opacity: 0.6;
+        }
+
+        /* 按钮激活状态时的文字透明度调整 */
+        .toggle-switch.active ~ .toggle-text.left {
+            opacity: 0.6;
+        }
+
+        .toggle-switch.active ~ .toggle-text.right {
+            opacity: 1;
+        }
+
+        /* 灰阶模式类 */
+        .grayscale-mode .image-item img {
+            filter: grayscale(100%) contrast(1.2) brightness(1.1);
+        }
+
+        .grayscale-mode .image-item:hover img {
+            filter: grayscale(100%) contrast(1.5) brightness(1.2);
+        }
+
+        /* GitHub链接样式 */
+        .github-link {
+            text-align: center;
+            margin: 40px 20px 20px;
+            padding: 20px;
+        }
+
+        .github-button {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            text-decoration: none;
+            padding: 12px 24px;
+            border-radius: 25px;
+            font-size: 1.1rem;
+            font-weight: 500;
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            transition: all 0.3s ease;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .github-button:hover {
+            background: rgba(255, 255, 255, 0.25);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+
+        .github-icon {
+            width: 24px;
+            height: 24px;
+            fill: currentColor;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1 class="title">图片展示廊</h1>
+        <p class="description">
+        </p>
+        
+        <!-- 切换开关 -->
+        <div class="toggle-container">
+            <div class="toggle-label">切换灰度展示</div>
+            <div class="toggle-switch-wrapper">
+                <span class="toggle-text left">彩色</span>
+                <div class="toggle-switch" id="modeToggle"></div>
+                <span class="toggle-text right">灰阶</span>
+            </div>
+        </div>
+
+        <!-- 第一行：表情符号 1-20 -->
+        <div class="scroll-row row-1">
+            <div class="scroll-content" id="row1">
+                <!-- 表情符号图片将通过JavaScript动态插入 -->
+            </div>
+        </div>
+
+        <!-- 第二行：表情符号 21-40 -->
+        <div class="scroll-row row-2">
+            <div class="scroll-content" id="row2">
+                <!-- 表情符号图片将通过JavaScript动态插入 -->
+            </div>
+        </div>
+
+        <!-- 第三行：表情符号 41-62 -->
+        <div class="scroll-row row-3">
+            <div class="scroll-content" id="row3">
+                <!-- 表情符号图片将通过JavaScript动态插入 -->
+            </div>
+        </div>
+
+        <!-- 第四行：模板图片 -->
+        <div class="scroll-row row-4">
+            <div class="scroll-content" id="row4">
+                <!-- 模板图片将通过JavaScript动态插入 -->
+            </div>
+        </div>
+
+        <!-- 第五行：其他图片 -->
+        <div class="scroll-row row-5">
+            <div class="scroll-content" id="row5">
+                <!-- 其他图片将通过JavaScript动态插入 -->
+            </div>
+        </div>
+
+        <!-- GitHub链接 -->
+        <div class="github-link">
+            <a href="https://github.com/onehupo/DotClient" target="_blank" rel="noopener noreferrer" class="github-button">
+                <svg class="github-icon" viewBox="0 0 24 24">
+                    <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                </svg>
+                查看GitHub仓库
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // 定义图片分组
+        const imageGroups = {
+            row1: [], // 表情符号 1-20
+            row2: [], // 表情符号 21-40  
+            row3: [], // 表情符号 41-62
+            row4: [], // 模板图片
+            row5: []  // 其他图片
+        };
+
+        // 生成表情符号文件名
+        for (let i = 1; i <= 20; i++) {
+            imageGroups.row2.push(`emoji_${i}.png`);
+        }
+        for (let i = 21; i <= 40; i++) {
+            imageGroups.row3.push(`emoji_${i}.png`);
+        }
+        for (let i = 41; i <= 62; i++) {
+            imageGroups.row4.push(`emoji_${i}.png`);
+        }
+
+        // 模板图片
+        imageGroups.row1 = [
+            'template_1.png',
+            'template_2.png', 
+            'template_3.png',
+            'temolate_4.png',
+        ];
+
+        // 其他图片
+        imageGroups.row5 = [
+            // 'dithered_floyd_steinberg_296x152.png',
+            // 'dithered_ordered_296x152.png',
+            // 'dithered_random_296x152.png',
+            'gray_296x152.png',
+            'sample-296x152-landscape.png',
+            'sample-296x152-text.png',
+            'template_5.jpg',
+            'template_6.jpg',
+            'template_7.jpg'
+        ];
+
+        // 创建图片元素的函数
+        function createImageElement(filename) {
+            const div = document.createElement('div');
+            div.className = 'image-item';
+            
+            const img = document.createElement('img');
+            img.src = `./public/examples/${filename}`;
+            img.alt = filename;
+            img.loading = 'lazy';
+            
+            // 添加错误处理
+            img.onerror = function() {
+                console.warn(`无法加载图片: ${filename}`);
+                this.style.display = 'none';
+            };
+            
+            div.appendChild(img);
+            return div;
+        }
+
+        // 填充每一行的图片
+        function populateRow(rowId, images) {
+            const container = document.getElementById(rowId);
+            
+            // 为了实现无缝滚动和立即铺满屏幕，复制更多次图片
+            const duplicatedImages = [...images, ...images, ...images, ...images, ...images];
+            
+            duplicatedImages.forEach(filename => {
+                const imageElement = createImageElement(filename);
+                container.appendChild(imageElement);
+            });
+        }
+
+        // 初始化所有行
+        Object.keys(imageGroups).forEach(rowId => {
+            populateRow(rowId, imageGroups[rowId]);
+        });
+
+        // 切换显示模式功能
+        const modeToggle = document.getElementById('modeToggle');
+        const container = document.querySelector('.container');
+        const leftText = document.querySelector('.toggle-text.left');
+        const rightText = document.querySelector('.toggle-text.right');
+        let isGrayscaleMode = false;
+
+        modeToggle.addEventListener('click', function() {
+            isGrayscaleMode = !isGrayscaleMode;
+            
+            if (isGrayscaleMode) {
+                // 切换到灰阶模式
+                this.classList.add('active');
+                container.classList.add('grayscale-mode');
+                leftText.style.opacity = '0.6';
+                rightText.style.opacity = '1';
+            } else {
+                // 切换到彩色模式
+                this.classList.remove('active');
+                container.classList.remove('grayscale-mode');
+                leftText.style.opacity = '1';
+                rightText.style.opacity = '0.6';
+            }
+        });
+
+        // 添加鼠标悬停暂停效果
+        document.querySelectorAll('.scroll-row').forEach(row => {
+            row.addEventListener('mouseenter', function() {
+                const content = this.querySelector('.scroll-content');
+                content.style.animationPlayState = 'paused';
+            });
+            
+            row.addEventListener('mouseleave', function() {
+                const content = this.querySelector('.scroll-content');
+                content.style.animationPlayState = 'running';
+            });
+        });
+
+        // 检查图片加载状态
+        window.addEventListener('load', function() {
+            console.log('所有图片加载完成');
+        });
+    </script>
+</body>
+</html>
