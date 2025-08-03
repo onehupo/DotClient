@@ -353,6 +353,28 @@ async fn send_image_to_api(
 }
 
 #[tauri::command]
+async fn save_text_to_downloads(
+    app_handle: tauri::AppHandle,
+    content: String,
+    filename: String,
+) -> Result<String, String> {
+    // Get the downloads directory
+    let downloads_dir = match app_handle.path().download_dir() {
+        Ok(dir) => dir,
+        Err(e) => return Err(format!("Failed to get downloads directory: {}", e)),
+    };
+
+    // Create full file path
+    let file_path = downloads_dir.join(&filename);
+
+    // Write the file
+    match std::fs::write(&file_path, content.as_bytes()) {
+        Ok(_) => Ok(file_path.to_string_lossy().to_string()),
+        Err(e) => Err(format!("Failed to write file: {}", e)),
+    }
+}
+
+#[tauri::command]
 async fn copy_to_clipboard(text: String) -> Result<String, String> {
     // 这个函数现在将通过前端的clipboard-manager插件调用，而不是直接在Rust中实现
     // 返回成功状态，实际复制操作由前端JS处理
@@ -366,7 +388,7 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .invoke_handler(tauri::generate_handler![greet, save_image_to_downloads, process_image_with_algorithm, send_text_to_api, send_image_to_api, copy_to_clipboard])
+        .invoke_handler(tauri::generate_handler![greet, save_image_to_downloads, save_text_to_downloads, process_image_with_algorithm, send_text_to_api, send_image_to_api, copy_to_clipboard])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

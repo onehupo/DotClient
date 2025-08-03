@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import "./App.css";
 
@@ -55,6 +55,8 @@ function App() {
   const [showExamples, setShowExamples] = useState(false);
   const [showExampleIcons, setShowExampleIcons] = useState(false);
   const [showDeviceSelector, setShowDeviceSelector] = useState(false);
+  const hasShownRestoreToast = useRef(false); // 跟踪是否已显示过恢复提示
+  const hasLoadedTextConfig = useRef(false); // 跟踪是否已加载过文本配置
   const [toasts, setToasts] = useState<Array<{
     id: string;
     message: string;
@@ -240,9 +242,16 @@ function App() {
     localStorage.setItem('darkMode', JSON.stringify(darkMode));
   }, [darkMode]);
 
-  // 当制图配置改变时，自动更新预览
+  // 当制图配置改变时，自动更新预览和保存配置
   useEffect(() => {
     updateTextToImagePreview();
+    
+    // 使用防抖来减少频繁的localStorage写入
+    const saveTimeout = setTimeout(() => {
+      localStorage.setItem('textToImageConfig', JSON.stringify(textToImageConfig));
+    }, 500); // 500ms防抖
+    
+    return () => clearTimeout(saveTimeout);
   }, [textToImageConfig]);
 
   // 当算法改变时，如果已有处理后的图片，自动重新处理（只在非用户主动切换时触发）
@@ -267,6 +276,56 @@ function App() {
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [showDeviceSelector]);
+
+  // 当切换到text-to-image tab时，加载保存的配置
+  useEffect(() => {
+    console.log('Tab changed to:', activeTab, 'hasLoadedTextConfig:', hasLoadedTextConfig.current);
+    
+    if (activeTab === 'text-to-image' && !hasLoadedTextConfig.current) {
+      hasLoadedTextConfig.current = true;
+      
+      console.log('开始加载制图配置...');
+      const savedTextToImageConfig = localStorage.getItem('textToImageConfig');
+      console.log('localStorage中的配置:', savedTextToImageConfig);
+      
+      if (savedTextToImageConfig) {
+        try {
+          const parsedConfig = JSON.parse(savedTextToImageConfig);
+          console.log('解析后的配置:', parsedConfig);
+          
+          // 验证配置格式是否有效
+          if (parsedConfig && typeof parsedConfig === 'object') {
+            // 确保必要的字段存在
+            const validatedConfig = {
+              backgroundColor: parsedConfig.backgroundColor || "white",
+              backgroundImage: parsedConfig.backgroundImage || null,
+              texts: Array.isArray(parsedConfig.texts) ? parsedConfig.texts : [],
+              link: parsedConfig.link || ""
+            };
+            
+            setTextToImageConfig(validatedConfig);
+            console.log('已加载保存的制图配置:', validatedConfig);
+            
+            // 如果有内容，显示提示（防止重复显示）
+            if ((validatedConfig.texts.length > 0 || validatedConfig.backgroundImage || validatedConfig.link) && !hasShownRestoreToast.current) {
+              hasShownRestoreToast.current = true;
+              setTimeout(() => {
+                showToast('已恢复上次的制图配置', 'info');
+              }, 500); // 缩短延迟，因为用户主动切换到此tab
+            }
+          } else {
+            throw new Error('配置格式无效');
+          }
+        } catch (error) {
+          console.warn('加载制图配置失败，使用默认配置:', error);
+          // 清除损坏的配置
+          localStorage.removeItem('textToImageConfig');
+        }
+      } else {
+        console.log('localStorage中没有保存的制图配置');
+      }
+    }
+  }, [activeTab]);
 
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
@@ -551,6 +610,119 @@ function App() {
       ...textToImageConfig,
       backgroundImage: null
     });
+  };
+
+  // 清空制图配置
+  const clearTextToImageConfig = () => {
+    const defaultConfig = {
+      backgroundColor: "white" as "white" | "black" | "gray",
+      backgroundImage: null as string | null,
+      texts: [],
+      link: ""
+    };
+    setTextToImageConfig(defaultConfig);
+    // 清除localStorage中的缓存
+    localStorage.removeItem('textToImageConfig');
+    showToast('已清空制图配置和缓存', 'success');
+  };
+
+  // 导出制图配置
+  const exportTextToImageConfig = async () => {
+    try {
+      showToast('正在导出配置...', 'info');
+      
+      const configToExport = {
+        ...textToImageConfig,
+        exportTime: new Date().toISOString(),
+        version: "1.0"
+      };
+      const dataStr = JSON.stringify(configToExport, null, 2);
+      
+      // 生成文件名
+      const now = new Date();
+      const dateStr = now.getFullYear() + '-' + 
+                     String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                     String(now.getDate()).padStart(2, '0');
+      const timeStr = String(now.getHours()).padStart(2, '0') + '-' + 
+                     String(now.getMinutes()).padStart(2, '0') + '-' + 
+                     String(now.getSeconds()).padStart(2, '0');
+      const filename = `text-to-image-config-${dateStr}_${timeStr}.json`;
+      
+      try {
+        // 尝试使用Tauri的文件系统API保存到下载目录
+        const savedPath = await invoke('save_text_to_downloads', {
+          content: dataStr,
+          filename: filename
+        });
+        
+        clearToastsByKeyword('正在导出配置');
+        showToast(`配置导出成功！已保存为 ${filename}`, 'success');
+        console.log('配置导出成功:', { filename, savedPath });
+      } catch (tauriError) {
+        console.warn('Tauri保存失败，使用浏览器下载:', tauriError);
+        
+        // 回退到浏览器下载
+        const dataBlob = new Blob([dataStr], {type: 'application/json'});
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(dataBlob);
+        link.download = filename;
+        
+        // 创建隐藏的链接并触发点击
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        
+        // 清理URL对象
+        URL.revokeObjectURL(link.href);
+        
+        clearToastsByKeyword('正在导出配置');
+        showToast('配置导出成功！', 'success');
+      }
+    } catch (error) {
+      console.error('导出配置失败:', error);
+      clearToastsByKeyword('正在导出配置');
+      showToast(`导出配置失败：${error}`, 'error');
+    }
+  };
+
+  // 导入制图配置
+  const importTextToImageConfig = () => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          try {
+            const configText = event.target?.result as string;
+            const importedConfig = JSON.parse(configText);
+            
+            // 验证配置格式
+            if (importedConfig && typeof importedConfig === 'object') {
+              // 提取有效的配置字段
+              const validConfig = {
+                backgroundColor: importedConfig.backgroundColor || "white",
+                backgroundImage: importedConfig.backgroundImage || null,
+                texts: Array.isArray(importedConfig.texts) ? importedConfig.texts : [],
+                link: importedConfig.link || ""
+              };
+              
+              setTextToImageConfig(validConfig);
+              showToast('配置导入成功！', 'success');
+            } else {
+              throw new Error('配置格式无效');
+            }
+          } catch (error) {
+            console.error('导入配置失败:', error);
+            showToast('导入配置失败：文件格式无效', 'error');
+          }
+        };
+        reader.readAsText(file);
+      }
+    };
+    input.click();
   };
 
   // 调整图片尺寸为296x152
@@ -2080,7 +2252,13 @@ function App() {
                   {/* 文本配置 */}
                   <div className="text-config-section">
                     <div className="text-config-header">
-                      <h4>文本配置</h4>
+                      <div className="text-config-title">
+                        <h4>文本配置</h4>
+                        <div className="cache-indicator-dynamic">
+                          <span className="cache-icon">💾</span>
+                          <span className="cache-text">自动保存</span>
+                        </div>
+                      </div>
                       <button className="add-text-button" onClick={addText}>
                         + 添加文本
                       </button>
@@ -2222,94 +2400,117 @@ function App() {
 
               {/* 操作按钮 */}
               <div className="action-buttons-container">
-                <button 
-                  className="action-button export-button"
-                  onClick={async () => {
-                    if (textToImagePreview) {
-                      try {
-                        showToast('正在导出图片...', 'info');
-                        
-                        // 生成文件名
-                        const now = new Date();
-                        const dateStr = now.getFullYear() + '-' + 
-                                       String(now.getMonth() + 1).padStart(2, '0') + '-' + 
-                                       String(now.getDate()).padStart(2, '0');
-                        const timeStr = String(now.getHours()).padStart(2, '0') + '-' + 
-                                       String(now.getMinutes()).padStart(2, '0') + '-' + 
-                                       String(now.getSeconds()).padStart(2, '0');
-                        const filename = `text-to-image-296x152-${dateStr}_${timeStr}.png`;
-                        
-                        // 调用Tauri命令保存图片到下载目录
-                        const savedPath = await invoke('save_image_to_downloads', {
-                          imageData: textToImagePreview,
-                          filename: filename
-                        });
-                        
-                        clearToastsByKeyword('正在导出图片');
-                        setTimeout(() => {
-                          showToast(`导出成功！已保存为 ${filename}`, 'success');
-                        }, 50);
-                        console.log('导出成功:', { filename, savedPath, type: 'text-to-image', size: '296x152' });
-                      } catch (error) {
-                        console.error('导出失败:', error);
-                        clearToastsByKeyword('正在导出图片');
-                        setTimeout(() => {
-                          showToast(`导出失败：${error}`, 'error');
-                        }, 50);
+                <div className="action-buttons-row">
+                  <button 
+                    className="action-button config-button"
+                    onClick={clearTextToImageConfig}
+                    title="清空所有配置"
+                  >
+                    清空配置
+                  </button>
+                  <button 
+                    className="action-button config-button"
+                    onClick={exportTextToImageConfig}
+                    title="导出当前配置到文件"
+                  >
+                    导出配置
+                  </button>
+                  <button 
+                    className="action-button config-button"
+                    onClick={importTextToImageConfig}
+                    title="从文件导入配置"
+                  >
+                    导入配置
+                  </button>
+                  <button 
+                    className="action-button export-button"
+                    onClick={async () => {
+                      if (textToImagePreview) {
+                        try {
+                          showToast('正在导出图片...', 'info');
+                          
+                          // 生成文件名
+                          const now = new Date();
+                          const dateStr = now.getFullYear() + '-' + 
+                                         String(now.getMonth() + 1).padStart(2, '0') + '-' + 
+                                         String(now.getDate()).padStart(2, '0');
+                          const timeStr = String(now.getHours()).padStart(2, '0') + '-' + 
+                                         String(now.getMinutes()).padStart(2, '0') + '-' + 
+                                         String(now.getSeconds()).padStart(2, '0');
+                          const filename = `text-to-image-296x152-${dateStr}_${timeStr}.png`;
+                          
+                          // 调用Tauri命令保存图片到下载目录
+                          const savedPath = await invoke('save_image_to_downloads', {
+                            imageData: textToImagePreview,
+                            filename: filename
+                          });
+                          
+                          clearToastsByKeyword('正在导出图片');
+                          setTimeout(() => {
+                            showToast(`导出成功！已保存为 ${filename}`, 'success');
+                          }, 50);
+                          console.log('导出成功:', { filename, savedPath, type: 'text-to-image', size: '296x152' });
+                        } catch (error) {
+                          console.error('导出失败:', error);
+                          clearToastsByKeyword('正在导出图片');
+                          setTimeout(() => {
+                            showToast(`导出失败：${error}`, 'error');
+                          }, 50);
+                        }
+                      } else {
+                        showToast('请先配置文本内容', 'error');
                       }
-                    } else {
-                      showToast('请先配置文本内容', 'error');
-                    }
-                  }}
-                  disabled={!textToImagePreview || textToImageConfig.texts.length === 0}
-                >
-                  导出
-                </button>
-                <button 
-                  className="action-button send-button"
-                  onClick={async () => {
-                    if (textToImagePreview && textToImageConfig.texts.length > 0) {
-                      console.log('发送制图:', { textToImageConfig, textToImagePreview });
-                      
-                      // 获取当前选择的设备
-                      const currentDevice = getCurrentDevice();
-                      if (!currentDevice || !currentDevice.apiKey || !currentDevice.serialNumber) {
-                        showToast('请先配置API密钥和设备ID', 'error');
-                        return;
-                      }
+                    }}
+                    disabled={!textToImagePreview || textToImageConfig.texts.length === 0}
+                  >
+                    导出图片
+                  </button>
+                  <button 
+                    className="action-button send-button"
+                    onClick={async () => {
+                      if (textToImagePreview && textToImageConfig.texts.length > 0) {
+                        console.log('发送制图:', { textToImageConfig, textToImagePreview });
+                        
+                        // 获取当前选择的设备
+                        const currentDevice = getCurrentDevice();
+                        if (!currentDevice || !currentDevice.apiKey || !currentDevice.serialNumber) {
+                          showToast('请先配置API密钥和设备ID', 'error');
+                          return;
+                        }
 
-                      try {
-                        showToast('正在发送制图...', 'info');
-                        
-                        // 调用Rust函数发送到API
-                        const result = await invoke('send_image_to_api', {
-                          apiKey: currentDevice.apiKey,
-                          deviceId: currentDevice.serialNumber,
-                          imageData: textToImagePreview,
-                          link: textToImageConfig.link.trim() || null
-                        });
-                        
-                        console.log('API响应:', result);
-                        clearToastsByKeyword('正在发送制图');
-                        setTimeout(() => {
-                          showToast('制图发送成功！(296×152)', 'success');
-                        }, 50);
-                        
-                      } catch (error) {
-                        console.error('发送失败:', error);
-                        clearToastsByKeyword('正在发送制图');
-                        setTimeout(() => {
-                          showToast(`发送失败：${error}`, 'error');
-                        }, 50);
+                        try {
+                          showToast('正在发送制图...', 'info');
+                          
+                          // 调用Rust函数发送到API
+                          const result = await invoke('send_image_to_api', {
+                            apiKey: currentDevice.apiKey,
+                            deviceId: currentDevice.serialNumber,
+                            imageData: textToImagePreview,
+                            link: textToImageConfig.link.trim() || null
+                          });
+                          
+                          console.log('API响应:', result);
+                          clearToastsByKeyword('正在发送制图');
+                          setTimeout(() => {
+                            showToast('制图发送成功！(296×152)', 'success');
+                          }, 50);
+                          
+                        } catch (error) {
+                          console.error('发送失败:', error);
+                          clearToastsByKeyword('正在发送制图');
+                          setTimeout(() => {
+                            showToast(`发送失败：${error}`, 'error');
+                          }, 50);
+                        }
+                      } else {
+                        showToast('请先配置文本内容', 'error');
                       }
-                    } else {
-                      showToast('请先配置文本内容', 'error');
-                    }
-                  }}
-                  disabled={!textToImagePreview || textToImageConfig.texts.length === 0}
-                >
-                  发送
-                </button>
+                    }}
+                    disabled={!textToImagePreview || textToImageConfig.texts.length === 0}
+                  >
+                    发送
+                  </button>
+                </div>
               </div>
             </div>
           )}

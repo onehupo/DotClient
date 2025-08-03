@@ -189,6 +189,28 @@ button {
   letter-spacing: -0.02em;
 }
 
+/* 动态缓存指示器 */
+.cache-indicator-dynamic {
+  display: flex;
+  align-items: start;
+  justify-self: start;
+  gap: 6px;
+  font-size: 12px;
+  color: #059669;
+  background-color: #ecfdf5;
+  padding: 4px 8px;
+  border-radius: 12px;
+  border: 1px solid #a7f3d0;
+}
+
+.cache-icon {
+  font-size: 12px;
+}
+
+.cache-text {
+  font-weight: 500;
+}
+
 .text-content {
   margin-top: 30px;
   display: flex;
@@ -641,6 +663,13 @@ button {
   padding-bottom: 10px;
 }
 
+.action-buttons-row {
+  display: flex;
+  justify-content: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
 .action-button {
   padding: 10px 20px;
   border: none;
@@ -656,6 +685,18 @@ button {
   opacity: 0.5;
   cursor: not-allowed;
   transform: none !important;
+}
+
+.config-button {
+  background-color: #6c757d;
+  color: white;
+  box-shadow: 0 2px 6px rgba(108, 117, 125, 0.3);
+}
+
+.config-button:hover:not(:disabled) {
+  background-color: #5a6268;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(108, 117, 125, 0.4);
 }
 
 .preview-button {
@@ -1452,6 +1493,13 @@ button {
   color: #f6f6f6;
 }
 
+/* 深色模式下的动态缓存指示器 */
+.dark-mode .cache-indicator-dynamic {
+  color: #10b981;
+  background-color: #064e3b;
+  border-color: #059669;
+}
+
 /* 预览框在深色模式下仍保持亮色背景 */
 .dark-mode .preview-box {
   border-color: #e0e0e0 !important;
@@ -1551,6 +1599,16 @@ button {
 .dark-mode .action-button.send-button:hover:not(:disabled) {
   background-color: #1ba1b8;
   box-shadow: 0 4px 10px rgba(36, 200, 219, 0.4);
+}
+
+.dark-mode .config-button {
+  background-color: #868e96;
+  box-shadow: 0 2px 6px rgba(134, 142, 150, 0.3);
+}
+
+.dark-mode .config-button:hover:not(:disabled) {
+  background-color: #74818c;
+  box-shadow: 0 4px 10px rgba(134, 142, 150, 0.4);
 }
 
 .dark-mode .image-preview-box {
@@ -2945,6 +3003,12 @@ button {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 15px;
+}
+
+.text-config-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .text-config-header h4 {
