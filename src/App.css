@@ -2609,12 +2609,11 @@ button {
 }
 
 .dark-mode .device-dropdown-item:hover {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #667eea80 0%, #764ba280 100%);
   color: white;
-  transform: translateX(2px);
 }
 
-.dark-mode .device-dropdown-item.selected {
+.dark-mode .device-dropdoßwn-item.selected {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
 }
