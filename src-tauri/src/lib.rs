@@ -3,6 +3,25 @@ use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 use tauri::Manager;
 
+mod automation;
+use automation::{
+    SimpleAutomationManager,
+    automation_add_task,
+    automation_update_task,
+    automation_delete_task,
+    automation_get_tasks,
+    automation_get_logs,
+    automation_execute_task,
+    automation_start_background_tasks,
+    automation_sync_api_keys,
+    automation_set_enabled,
+    automation_get_enabled,
+    automation_set_api_key,
+    automation_generate_planned_for_date,
+    automation_get_planned_for_date,
+    automation_clear_planned_for_date,
+};
+
 #[derive(Serialize, Deserialize)]
 struct TextApiRequest {
     #[serde(rename = "deviceId")]
@@ -375,7 +394,7 @@ async fn save_text_to_downloads(
 }
 
 #[tauri::command]
-async fn copy_to_clipboard(text: String) -> Result<String, String> {
+async fn copy_to_clipboard(_text: String) -> Result<String, String> {
     // 这个函数现在将通过前端的clipboard-manager插件调用，而不是直接在Rust中实现
     // 返回成功状态，实际复制操作由前端JS处理
     Ok("Ready for clipboard operation".to_string())
@@ -388,7 +407,41 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_clipboard_manager::init())
-        .invoke_handler(tauri::generate_handler![greet, save_image_to_downloads, save_text_to_downloads, process_image_with_algorithm, send_text_to_api, send_image_to_api, copy_to_clipboard])
+        .setup(|app| {
+            // 获取应用数据目录
+            let app_data_dir = app.path().app_data_dir().expect("Failed to get app data directory");
+            
+            // 初始化简化的自动化管理器
+            let automation_manager = SimpleAutomationManager::new(app_data_dir);
+            app.manage(automation_manager);
+            
+            println!("Simple automation manager initialized successfully");
+            
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            greet, 
+            save_image_to_downloads, 
+            save_text_to_downloads, 
+            process_image_with_algorithm, 
+            send_text_to_api, 
+            send_image_to_api, 
+            copy_to_clipboard,
+            automation_add_task,
+            automation_update_task,
+            automation_delete_task,
+            automation_get_tasks,
+            automation_get_logs,
+            automation_execute_task,
+            automation_start_background_tasks,
+            automation_sync_api_keys,
+            automation_set_api_key,
+            automation_set_enabled,
+            automation_get_enabled
+            ,automation_generate_planned_for_date
+            ,automation_get_planned_for_date
+            ,automation_clear_planned_for_date
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

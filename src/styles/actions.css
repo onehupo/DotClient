@@ -1,0 +1,21 @@
+/* Action buttons row */
+.action-buttons-container { display: flex; justify-content: center; gap: 15px; margin-top: 15px; padding-bottom: 10px; }
+.action-buttons-row { display: flex; justify-content: center; gap: 15px; flex-wrap: wrap; }
+.action-button { padding: 10px 20px; border: none; border-radius: 6px; font-size: 14px; font-weight: 500; cursor: pointer; transition: all 0.3s ease; min-width: 80px; }
+.action-button:disabled { opacity: 0.5; cursor: not-allowed; transform: none !important; }
+.config-button { background-color: #6c757d; color: white; box-shadow: 0 2px 6px rgba(108,117,125,0.3); }
+.config-button:hover:not(:disabled) { background-color: #5a6268; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(108,117,125,0.4); }
+.preview-button { background-color: #28a745; color: white; box-shadow: 0 2px 6px rgba(40,167,69,0.3); }
+.preview-button:hover:not(:disabled) { background-color: #218838; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(40,167,69,0.4); }
+.export-button { background-color: #ffc107; color: #212529; box-shadow: 0 2px 6px rgba(255,193,7,0.3); }
+.export-button:hover:not(:disabled) { background-color: #e0a800; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(255,193,7,0.4); }
+.send-button { background-color: #396cd8; color: white; box-shadow: 0 2px 6px rgba(57,108,216,0.3); }
+.send-button:hover:not(:disabled) { background-color: #2954b8; transform: translateY(-1px); box-shadow: 0 4px 10px rgba(57,108,216,0.4); }
+.action-button:active:not(:disabled) { transform: translateY(0); }
+/* Dark */
+.dark-mode .preview-button { background-color: #20c997; box-shadow: 0 2px 6px rgba(32,201,151,0.3); }
+.dark-mode .preview-button:hover:not(:disabled) { background-color: #1aa085; box-shadow: 0 4px 10px rgba(32,201,151,0.4); }
+.dark-mode .export-button { background-color: #fd7e14; color: white; box-shadow: 0 2px 6px rgba(253,126,20,0.3); }
+.dark-mode .export-button:hover:not(:disabled) { background-color: #e8690b; box-shadow: 0 4px 10px rgba(253,126,20,0.4); }
+.dark-mode .action-button.send-button { background-color: #24c8db; box-shadow: 0 2px 6px rgba(36,200,219,0.3); }
+.dark-mode .action-button.send-button:hover:not(:disabled) { background-color: #1ba1b8; box-shadow: 0 4px 10px rgba(36,200,219,0.4); }

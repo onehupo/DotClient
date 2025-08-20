@@ -1,0 +1,5 @@
+/* Stats cards */
+.automation-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 16px; margin-bottom: 24px; }
+.stat-item { background: var(--card-bg); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); text-align: center; }
+.stat-label { display: block; font-size: 14px; color: var(--text-secondary); margin-bottom: 8px; }
+.stat-value { display: block; font-size: 24px; font-weight: 700; color: var(--primary-color); }

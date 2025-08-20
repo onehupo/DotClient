@@ -1,0 +1,15 @@
+/* Responsive rules */
+@media (max-width: 768px) {
+  .automation-header { flex-direction: column; gap: 16px; align-items: stretch; }
+  .header-left { align-items: center; text-align: center; }
+  .current-time { justify-content: center; }
+  .automation-actions { justify-content: center; }
+  .automation-stats { grid-template-columns: repeat(2, 1fr); }
+  .task-header { flex-direction: column; gap: 8px; align-items: flex-start; }
+  .task-actions { justify-content: flex-start; }
+  .task-details { grid-template-columns: 1fr; }
+  .task-stats { flex-direction: column; gap: 8px; }
+  .task-row { grid-template-columns: 1fr; }
+  .task-preview-col { justify-content: center; }
+  .log-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+}

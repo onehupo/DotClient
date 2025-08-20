@@ -1,0 +1,8 @@
+/* Base container for automation page */
+.automation-page {
+  padding: 20px;
+  max-width: 1200px;
+  margin: 0 auto;
+  /* Ensure long lists are scrollable when rendered inside constrained containers */
+  min-height: 0; /* allow flex children to shrink */
+}

@@ -294,6 +294,13 @@ button {
   color: #000 !important;
   line-height: 1.4;
   word-wrap: break-word;
+  text-align: start;
+  /* 添加以下属性实现2行限制 */
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .preview-footer {

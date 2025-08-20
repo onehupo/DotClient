@@ -1,0 +1,47 @@
+/* Base variables, resets, typography, dark mode roots */
+.logo.vite:hover { filter: drop-shadow(0 0 2em #747bff); }
+.logo.react:hover { filter: drop-shadow(0 0 2em #61dafb); }
+:root {
+  font-family: Inter, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 16px;
+  line-height: 24px;
+  font-weight: 400;
+  color: #0f0f0f;
+  background-color: #f6f6f6;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  /* Theme variables (light) */
+  --primary-color: #3b82f6;
+  --primary-hover: #2563eb;
+  --text-color: #0f172a;
+  --text-secondary: #64748b;
+  --border-color: #e2e8f0;
+  --secondary-bg: #f1f5f9;
+  --hover-bg: #e2e8f0;
+  --card-bg: #ffffff;
+  --input-bg: #ffffff;
+  /* Dark counterparts */
+  --card-bg-dark: #1f2937;
+  --border-color-dark: #374151;
+  --secondary-bg-dark: #111827;
+}
+html, body { height: 100vh; overflow: hidden; }
+/* Keep outer page non-scrollable (Tauri shell), but allow inner tab to scroll */
+.container { margin: 0; padding: 20px; display: flex; flex-direction: column; justify-content: flex-start; text-align: center; height: 100vh; overflow: hidden; min-height: 0; }
+.row { display: flex; justify-content: center; }
+a { font-weight: 500; color: #646cff; text-decoration: inherit; }
+a:hover { color: #535bf2; }
+h1 { text-align: center; }
+input, button { border-radius: 8px; border: 1px solid transparent; padding: 0.6em 1.2em; font-size: 1em; font-weight: 500; font-family: inherit; color: #0f0f0f; background-color: #ffffff; transition: border-color 0.25s; box-shadow: 0 2px 2px rgba(0,0,0,0.2); outline: none; }
+button { cursor: pointer; }
+button:hover { border-color: #396cd8; }
+button:active { border-color: #396cd8; background-color: #e8e8e8; }
+#greet-input { margin-right: 5px; }
+/* Dark mode base */
+.dark-mode { color: #f6f6f6; background-color: #2f2f2f; }
+.dark-mode a:hover { color: #24c8db; }
+.dark-mode input, .dark-mode button { color: #ffffff; background-color: #0f0f0f98; }
+.dark-mode button:active { background-color: #0f0f0f69; }

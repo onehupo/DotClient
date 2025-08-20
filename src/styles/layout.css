@@ -1,0 +1,14 @@
+/* Layout containers */
+.tab-container { width: 100%; max-width: 1200px; margin: 0 auto; flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+/* Allow vertical scrolling inside active tab content (outer containers keep overflow hidden) */
+.tab-content { padding: 5px 0 10px 0; flex: 1; overflow: hidden; overflow-y: auto; }
+.image-page, .text-page, .text-to-image-page { height: 100%; display: flex; flex-direction: column; }
+.text-page h2, .image-page h2, .text-to-image-page h2 { margin-top: 10px; margin-bottom: 15px; color: #1f2937; font-size: 24px; font-weight: 600; text-align: center; letter-spacing: -0.02em; }
+/* cache indicator */
+.cache-indicator-dynamic { display: flex; align-items: start; justify-self: start; gap: 6px; font-size: 12px; color: #059669; background-color: #ecfdf5; padding: 4px 8px; border-radius: 12px; border: 1px solid #a7f3d0; }
+.cache-icon { font-size: 12px; }
+.cache-text { font-weight: 500; }
+.text-content { margin-top: 30px; display: flex; justify-content: center; }
+/* Dark overrides */
+.dark-mode .text-page h2, .dark-mode .image-page h2, .dark-mode .text-to-image-page h2 { color: #f3f4f6; text-shadow: 0 2px 4px rgba(0,0,0,0.4); background: linear-gradient(135deg, #f3f4f6 0%, #d1d5db 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.dark-mode .text-page h3, .dark-mode .image-page h3, .dark-mode .text-to-image-page h3 { color: #f6f6f6; }

@@ -1,0 +1,7 @@
+/* Dark mode overrides for automation page */
+.dark-mode .stat-item { background: var(--card-bg-dark); border-color: var(--border-color-dark); }
+.dark-mode .task-item { background: var(--card-bg-dark); border-color: var(--border-color-dark); }
+.dark-mode .task-item.disabled { background: var(--secondary-bg-dark); }
+.dark-mode .task-config { background: var(--secondary-bg-dark); border-color: var(--border-color-dark); }
+.dark-mode .device-checkboxes { background: var(--secondary-bg-dark); border-color: var(--border-color-dark); }
+.dark-mode .log-item { background: var(--card-bg-dark); border-color: var(--border-color-dark); }

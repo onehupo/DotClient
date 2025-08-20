@@ -1,0 +1,10 @@
+/* Aggregates automation page styles */
+@import './base.css';
+@import './header.css';
+@import './toggle-actions.css';
+@import './stats.css';
+@import './tasks.css';
+@import './modals.css';
+@import './logs.css';
+@import './responsive.css';
+@import './dark.css';

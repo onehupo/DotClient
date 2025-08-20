@@ -1,0 +1,12 @@
+/* Tabs strip */
+.tab-buttons { display: flex; justify-content: center; align-items: center; margin-bottom: 15px; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border-radius: 16px; padding: 8px; box-shadow: 0 4px 16px rgba(0,0,0,0.08); border: 1px solid rgba(255,255,255,0.2); }
+.tab-button { padding: 14px 28px; margin: 0 4px; background: rgba(255,255,255,0.5); border: none; border-radius: 12px; cursor: pointer; font-size: 15px; font-weight: 500; color: #475569; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative; min-width: 100px; display: flex; align-items: center; justify-content: center; }
+.tab-button:hover { color: #334155; background: rgba(255,255,255,0.9); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+.tab-button.active { color: white; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); font-weight: 600; box-shadow: 0 6px 20px rgba(102,126,234,0.3); }
+.tab-button.active::before { content: ''; position: absolute; inset: 0; background: linear-gradient(135deg, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0) 100%); border-radius: 8px; pointer-events: none; }
+/* Dark */
+.dark-mode .tab-buttons { background: linear-gradient(135deg, #1e293b 0%, #334155 100%); border: 1px solid rgba(255,255,255,0.1); }
+.dark-mode .tab-button { color: #cbd5e1; background: rgba(255,255,255,0.08); border: none; }
+.dark-mode .tab-button:hover { color: #e2e8f0; background: rgba(255,255,255,0.15); box-shadow: 0 2px 8px rgba(0,0,0,0.2); }
+.dark-mode .tab-button.active { color: white; background: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%); box-shadow: 0 6px 20px rgba(139,92,246,0.3); }
+.dark-mode .tab-button.active::before { background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0) 100%); }

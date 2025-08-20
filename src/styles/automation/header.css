@@ -1,0 +1,32 @@
+/* Header area */
+.automation-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 24px;
+}
+
+.header-left {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.automation-header h2 {
+  margin: 0;
+  color: var(--text-color);
+}
+
+.current-time {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+
+.time-label { color: var(--text-secondary); }
+.time-value { 
+  color: var(--primary-color);
+  font-weight: 500;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+}

@@ -1,0 +1,46 @@
+/* Task modal */
+.task-modal { width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; }
+.task-form { display: flex; flex-direction: column; gap: 20px; }
+.form-group { display: flex; flex-direction: column; gap: 8px; }
+.form-group label { font-weight: 500; color: var(--text-color); font-size: 14px; }
+.form-group input, .form-group select, .form-group textarea { padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; background: var(--input-bg); color: var(--text-color); font-size: 14px; }
+.form-group input:focus, .form-group select:focus, .form-group textarea:focus { outline: none; border-color: var(--primary-color); box-shadow: 0 0 0 3px rgba(59,130,246,0.1); }
+.cron-input { margin-top: 8px; font-family: monospace; }
+.device-checkboxes { display: flex; flex-direction: column; gap: 8px; background: var(--secondary-bg); padding: 12px; border-radius: 6px; border: 1px solid var(--border-color); }
+.checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
+.checkbox-label input[type="checkbox"] { width: auto; margin: 0; }
+.task-config { background: var(--secondary-bg); padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); }
+.task-config h4 { margin: 0 0 16px 0; color: var(--text-color); font-size: 16px; }
+
+/* Schedule mode styles */
+.schedule-mode { margin-bottom: 15px; }
+.schedule-mode label { display: flex; align-items: center; margin-bottom: 10px; cursor: pointer; font-size: 14px; }
+.schedule-mode input[type="radio"] { margin-right: 8px; }
+
+/* Interval preset styles */
+.interval-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; margin-bottom: 15px; }
+.interval-preset { padding: 8px 12px; border: 1px solid var(--border-color); background: var(--input-bg); border-radius: 4px; cursor: pointer; text-align: center; font-size: 12px; transition: all 0.2s; }
+.interval-preset:hover { background: var(--secondary-bg); border-color: var(--primary-color); }
+.interval-preset.selected { background: var(--primary-color); color: white; border-color: var(--primary-color); }
+
+/* Custom interval styles */
+.custom-interval { display: flex; gap: 10px; align-items: center; }
+.custom-interval input { width: 80px; }
+.custom-interval select { width: 80px; }
+
+/* Logs modal */
+.logs-modal { width: 90%; max-width: 800px; max-height: 80vh; }
+.logs-list { display: flex; flex-direction: column; gap: 12px; max-height: 60vh; overflow-y: auto; }
+.empty-logs { text-align: center; padding: 32px; color: var(--text-secondary); }
+.log-item { padding: 16px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--card-bg); }
+.log-item.success { border-left: 4px solid #10b981; }
+.log-item.error { border-left: 4px solid #ef4444; }
+.log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.log-task { font-weight: 500; color: var(--text-color); }
+.log-time { font-size: 12px; color: var(--text-secondary); }
+.log-status { padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 500; }
+.log-status.success { background: #d1fae5; color: #065f46; }
+.log-status.error { background: #fee2e2; color: #991b1b; }
+.log-error { background: #fef2f2; color: #991b1b; padding: 8px; border-radius: 4px; font-size: 12px; margin-bottom: 8px; }
+.log-duration { font-size: 11px; color: var(--text-secondary); }
+.loading { text-align: center; padding: 48px; color: var(--text-secondary); }
