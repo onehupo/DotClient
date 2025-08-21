@@ -2620,7 +2620,7 @@ button {
   color: white;
 }
 
-.dark-mode .device-dropdoßwn-item.selected {
+.dark-mode .device-dropdown-item.selected {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
   color: white;
 }
@@ -2642,51 +2642,6 @@ button {
   color: white;
   font-weight: 600;
 }
-
-/* 移除旧的设备选择栏样式（保留注释以防需要） */
-/*
-.device-selector-bar {
-  background: rgba(255, 255, 255, 0.9);
-  backdrop-filter: blur(10px);
-  border-bottom: 1px solid rgba(0, 0, 0, 0.1);
-  padding: 10px 20px;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  margin-bottom: 20px;
-}
-
-.device-selector-container {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  max-width: 1200px;
-  margin: 0 auto;
-}
-
-.device-selector-container label {
-  font-weight: 500;
-  color: #374151;
-  white-space: nowrap;
-}
-
-.device-selector {
-  padding: 8px 12px;
-  border: 1px solid #d1d5db;
-  border-radius: 6px;
-  background: white;
-  color: #374151;
-  font-size: 14px;
-  min-width: 200px;
-  transition: all 0.2s ease;
-}
-
-.device-selector:focus {
-  outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
-}
-*/
 
 /* 设备管理模态框样式 */
 .devices-modal {

@@ -4,6 +4,7 @@ use std::io::Cursor;
 use tauri::Manager;
 
 mod automation;
+mod macro_replacer;
 use automation::{
     SimpleAutomationManager,
     automation_add_task,
@@ -21,6 +22,7 @@ use automation::{
     automation_get_planned_for_date,
     automation_clear_planned_for_date,
 };
+use macro_replacer::MacroReplacer;
 
 #[derive(Serialize, Deserialize)]
 struct TextApiRequest {
@@ -398,6 +400,18 @@ async fn copy_to_clipboard(_text: String) -> Result<String, String> {
     // 这个函数现在将通过前端的clipboard-manager插件调用，而不是直接在Rust中实现
     // 返回成功状态，实际复制操作由前端JS处理
     Ok("Ready for clipboard operation".to_string())
+}
+
+#[tauri::command]
+async fn test_macro_replacement(text: String) -> Result<String, String> {
+    let macro_replacer = MacroReplacer::new();
+    Ok(macro_replacer.replace(&text))
+}
+
+#[tauri::command]
+async fn get_available_macros() -> Result<Vec<String>, String> {
+    let macro_replacer = MacroReplacer::new();
+    Ok(macro_replacer.list_macros())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

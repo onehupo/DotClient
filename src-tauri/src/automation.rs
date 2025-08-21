@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc, TimeZone, Timelike, NaiveDate};
+use chrono::{DateTime, Utc, TimeZone, Timelike, Datelike, NaiveDate};
 use chrono_tz::Asia::Shanghai;
-use std::collections::{HashMap, VecDeque, HashSet};
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use std::time::Duration;
@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::fs;
 use base64::Engine; // for encode/decode methods on base64 engine
 use image::imageops::FilterType;
+use crate::macro_replacer::MacroReplacer;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutomationTask {
@@ -29,11 +30,7 @@ pub struct AutomationTask {
     #[serde(default)]
     pub fixed_at: Option<DateTime<Utc>>, // 固定时间（一次性）
     #[serde(default)]
-    pub min_interval_sec: Option<i64>,   // 最小间隔
-    #[serde(default)]
-    pub max_interval_sec: Option<i64>,   // 最大间隔（截止）
-    #[serde(default)]
-    pub interval_sec: Option<i64>,       // 前端使用的单一间隔字段
+    pub interval_sec: Option<u32>, // 间隔时间（秒）
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -374,7 +371,6 @@ impl SimpleAutomationManager {
         let logs_file_path = self.logs_file_path();
         let backlog = Arc::clone(&self.backlog);
         let planned = Arc::clone(&self.planned);
-        let app_handle = Arc::clone(&self.app_handle);
          
          std::thread::spawn(move || {
              let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio runtime");
@@ -382,21 +378,15 @@ impl SimpleAutomationManager {
              rt.block_on(async {
                 // 每秒对齐检查：1s 粒度，一秒仅启动一个任务
                 let mut interval = tokio::time::interval(Duration::from_secs(1));
-                let mut last_log_minute = 0u32; // 用于控制日志输出频率
                 
                 loop {
                     interval.tick().await;
-                    
+
                     let now = Utc::now();
                     let shanghai_time = now.with_timezone(&Shanghai);
-                    let current_minute = shanghai_time.minute();
-                    
-                    // 只在分钟变化时输出调度循环日志
-                    if current_minute != last_log_minute {
-                        println!("🔄 FROM=调度循环: {}", shanghai_time.format("%Y-%m-%d %H:%M"));
-                        last_log_minute = current_minute;
-                    }
-                    
+
+                    println!("start_task_checker loop : {}", shanghai_time.format("%Y-%m-%d %H:%M:%S"));
+
                     // 检查全局自动化开关
                     let is_enabled = {
                         let enabled_guard = automation_enabled.lock().unwrap();
@@ -408,142 +398,67 @@ impl SimpleAutomationManager {
                         continue;
                     }
 
-                    // 处理过期的计划项目，将其标记为跳过
-                    {
-                        let mut p = planned.lock().unwrap();
-                        let today = now.with_timezone(&Shanghai).date_naive().to_string();
-                        let mut marked_count = 0;
-                        
-                        for item in p.iter_mut() {
-                            if item.date == today && item.status == "pending" {
-                                if let Some(scheduled) = item.scheduled_at {
-                                    let diff_seconds = (now - scheduled).num_seconds();
-                                    // 如果超过1秒且已经过期，标记为跳过
-                                    if diff_seconds > 1 && now > scheduled {
-                                        item.status = "skipped".to_string();
-                                        marked_count += 1;
-                                    }
-                                }
-                            }
-                        }
-                        
-                        if marked_count > 0 {
-                            println!("⏭️ 跳过 {} 个过期任务", marked_count);
-                        }
-                    }
-
-                    // 1) 构建候选集：来自 backlog + 新到期任务
-                    let mut candidate_ids: Vec<String> = {
-                        let mut ids = Vec::new();
-                        // 先取出 backlog（不清空，仅复制顺序）
-                        let bl_guard = backlog.lock().unwrap();
-                        for id in bl_guard.iter() { ids.push(id.clone()); }
-                        ids
+                    // 获取当前planned_queue
+                    let planned_queue = {
+                        let guard = planned.lock().unwrap();
+                        guard.clone()
                     };
 
-                    let tasks_snapshot: Vec<AutomationTask> = {
-                        let guard = tasks.lock().unwrap();
-                        guard.values().cloned().collect()
-                    };
-
-                    for t in tasks_snapshot.iter() {
-                        if !t.enabled { 
-                            continue; 
-                        }
-                        
-                        // 检查该任务是否在今天（以上海时区为准）的计划队列中，且有待执行项目
-                        let today = now.with_timezone(&Shanghai).date_naive().to_string();
-                        
-                        let has_pending_planned_for_this_task = {
-                            let p = planned.lock().unwrap();
-                            let pending_items: Vec<_> = p.iter()
-                                .filter(|pi| pi.date == today && pi.task_id == t.id && pi.status == "pending")
-                                .collect();
-                            
-                            !pending_items.is_empty()
-                        };
-                        
-                        // 如果该任务在计划队列中，检查是否到达计划执行时间（精确时间，不允许延迟）
-                        let planned_due = if has_pending_planned_for_this_task {
-                            let p = planned.lock().unwrap();
-                            
-                            let due_items: Vec<_> = p.iter()
-                                .filter(|pi| {
-                                    if pi.date == today && pi.status == "pending" && pi.task_id == t.id {
-                                        if let Some(scheduled) = pi.scheduled_at {
-                                            // 只在精确时间点执行，不允许延迟（精确到秒）
-                                            let diff_seconds = (now - scheduled).num_seconds().abs();
-                                            diff_seconds <= 1 && now >= scheduled
-                                        } else {
-                                            false
-                                        }
-                                    } else {
-                                        false
-                                    }
-                                })
-                                .collect();
-                            
-                            if !due_items.is_empty() {
-                                println!("⏰ 任务 {} 到达执行时间", t.name);
+                    // 过滤出当前时间(秒)的task队列，willExecute
+                    let will_execute_tasks: Vec<_> = planned_queue.iter()
+                        .filter(|task| {
+                            if let Some(scheduled_at) = task.scheduled_at {
+                                let task_time = scheduled_at.with_timezone(&Shanghai);
+                                task_time.year() == shanghai_time.year()
+                                    && task_time.month() == shanghai_time.month()
+                                    && task_time.day() == shanghai_time.day()
+                                    && task_time.hour() == shanghai_time.hour()
+                                    && task_time.minute() == shanghai_time.minute()
+                                    && task_time.second() == shanghai_time.second()
+                            } else {
+                                false
                             }
-                            
-                            !due_items.is_empty()
-                        } else {
-                            false
-                        };
-                        
-                        // 只使用计划队列逻辑，没有计划就不执行
-                        let should_execute = if has_pending_planned_for_this_task {
-                            planned_due
-                        } else {
-                            // 没有在计划队列中的任务不执行
-                            false
-                        };
-                        
-                        if should_execute {
-                            candidate_ids.push(t.id.clone());
-                        }
-                    }
+                        })
+                        .cloned()
+                        .collect();
+                    println!("当前时间(秒)的待执行任务: {:?}", will_execute_tasks);
 
-                    // 去重
-                    let mut seen: HashSet<String> = HashSet::new();
-                    candidate_ids.retain(|id| seen.insert(id.clone()));
-
-                    // 组装候选任务并计算优先级键（结合计划队列位置）
-                    let mut candidates: Vec<(AutomationTask, CandidatePriority)> = Vec::new();
-                    // 获取今天的日期（上海时区）
-                    let today = now.with_timezone(&Shanghai).date_naive().to_string();
-                    let planned_snapshot: Vec<PlannedItem> = { planned.lock().unwrap().clone() };
-                    for id in candidate_ids.iter() {
-                        if let Some(task) = tasks_snapshot.iter().find(|t| &t.id == id) {
-                            if let Some(mut pri) = compute_priority(task, now) {
-                                // 若存在计划项，按 position 提升优先级
-                                if let Some(p) = planned_snapshot
-                                    .iter()
-                                    .filter(|pi| pi.date == today && pi.status == "pending" && pi.task_id == task.id)
-                                    .min_by_key(|pi| pi.position) {
-                                    // 让计划项优先：把 kind_rank 设为 0，并以 position 作为主键
-                                    pri.kind_rank = 0;
-                                    pri.key1 = p.position as i64;
-                                }
-                                candidates.push((task.clone(), pri));
+                    // 找出will_execute_tasks中，可以执行的task，对应的task_config配置中应该是开启的状态
+                    let mut candidate_tasks = Vec::new();
+                    let tasks_guard = tasks.lock().unwrap();
+                    for t in will_execute_tasks {
+                        if let Some(task_config) = tasks_guard.get(&t.task_id) {
+                            if task_config.enabled {
+                                candidate_tasks.push(task_config.clone());
                             }
                         }
                     }
+                    
+                    // 提取任务ID用于日志显示
+                    let candidate_ids: Vec<String> = candidate_tasks.iter().map(|task| task.id.clone()).collect();
 
-                    // 排序：固定时间优先；间隔按deadline紧迫度、最小间隔等次序
-                    candidates.sort_by(|a, b| a.1.cmp(&b.1));
+                    // 同一时间，只保留一个任务，所以需要忽略其他任务，取出第一个
+                    let first_candidate_task = candidate_tasks.first().cloned();
+                    if let Some(ref task) = first_candidate_task {
+                        candidate_tasks.retain(|t| t.id == task.id);
+                        println!("当前时间(秒)的执行任务: {}", task.id);
+                    } else {
+                        println!("当前时间(秒)的执行任务: 无");
+                    }
+
+                    // 直接使用候选任务数据计算优先级
+                    let mut candidates = Vec::new();
+                    for task in candidate_tasks {
+                        let priority = compute_priority(&task, now);
+                        candidates.push((task, priority));
+                    }
+                    
+                    // 打印候选任务的名称
+                    let candidate_names: Vec<String> = candidates.iter().map(|(task, _)| task.name.clone()).collect();
+                    println!("候选任务: {:?}", candidate_names);
 
                     // 仅取一个任务执行；其余回写 backlog
                     if let Some((task, _pri)) = candidates.first().cloned() {
-                        // 回写 backlog（不包括已选任务）
-                        {
-                            let mut bl = backlog.lock().unwrap();
-                            bl.clear();
-                            for (t, _p) in candidates.into_iter().skip(1) {
-                                bl.push_back(t.id);
-                            }
-                        }
 
                         // 执行前获取 API key
                         let api_key = {
@@ -571,91 +486,13 @@ impl SimpleAutomationManager {
                         let duration_ms = start_time.elapsed().as_millis() as u64;
                         let success = result.is_ok();
                         let error_message = if let Err(ref e) = result { Some(e.clone()) } else { None };
-
-                        // 记录执行日志
-                        let log = TaskExecutionLog {
-                            id: uuid::Uuid::new_v4().to_string(),
-                            task_id: task.id.clone(),
-                            executed_at,
-                            success,
-                            error_message,
-                            duration_ms,
-                        };
-                        {
-                            let mut logs_guard = logs.lock().unwrap();
-                            logs_guard.push(log);
-                        }
-
-                        // 更新任务统计与调度字段
-                        {
-                            let mut tasks_guard = tasks.lock().unwrap();
-                            if let Some(task_mut) = tasks_guard.get_mut(&task.id) {
-                                task_mut.last_run = Some(executed_at);
-                                task_mut.run_count += 1;
-                                if !success { task_mut.error_count += 1; }
-
-                                // 若为一次性 fixed_at，执行后清空
-                                if task_mut.fixed_at.is_some() {
-                                    task_mut.fixed_at = None;
-                                }
-                            }
-                        }
-
-                        // 标记计划项为完成（以上海时区判断日期）
-                        {
-                            let mut planned_guard = planned.lock().unwrap();
-                            let today_str = executed_at.with_timezone(&Shanghai).date_naive().to_string();
-                            
-                            // 找到今天第一个待执行且匹配的项
-                            if let Some(item) = planned_guard
-                .iter_mut()
-                .filter(|pi| pi.date == today_str && pi.status == "pending" && pi.task_id == task.id)
-                                .min_by_key(|pi| pi.position) {
-                                item.status = if success { "done".into() } else { "skipped".into() };
-                                item.executed_at = Some(executed_at);
-                                
-                                println!("✅ 任务完成: {}", if success { "成功" } else { "失败" });
-                            }
-                            
-                            // 保存
-                            if let Ok(json) = serde_json::to_string_pretty(&*planned_guard) {
-                                let _ = fs::write(tasks_file_path.parent().unwrap().join("planned_queue.json"), json);
-                            }
-                            // 新增：检查是否当天全部计划项已完成（无 pending）且 backlog 为空
-                            let remaining_pending = planned_guard.iter()
-                                .filter(|p| p.date == today_str && p.status == "pending")
-                                .count();
-                            let backlog_len = backlog.lock().map(|b| b.len()).unwrap_or(0);
-                            if remaining_pending == 0 && backlog_len == 0 {
-                                println!("🎉 当日计划已全部完成: {}", today_str);
-                                // 可选：在此触发其它动作，例如发送通知、调用外部回调或写入标记文件
-                                // let _ = fs::write(self.data_dir.join(format!("completed_{}.stamp", today_str)), "done");
-                                // 若注册了 AppHandle，向前端广播计划已更新事件（payload 为日期字符串）
-                                if let Ok(ah) = app_handle.lock() {
-                                    if let Some(app) = ah.as_ref() {
-                                        let _ = app.emit("planned-updated", today_str.clone());
-                                    }
-                                }
-                             }
-                         }                        // 持久化任务与日志（日志保留最近100条）
-                        {
-                            let tasks_guard = tasks.lock().unwrap();
-                            let tasks_vec: Vec<AutomationTask> = tasks_guard.values().cloned().collect();
-                            if let Ok(json_data) = serde_json::to_string_pretty(&tasks_vec) {
-                                let _ = fs::write(&tasks_file_path, json_data);
-                            }
-                        }
-                        {
-                            let logs_guard = logs.lock().unwrap();
-                            let logs_to_save: Vec<TaskExecutionLog> = logs_guard.iter().rev().take(100).cloned().collect::<Vec<_>>().into_iter().rev().collect();
-                            if let Ok(json_data) = serde_json::to_string_pretty(&logs_to_save) {
-                                let _ = fs::write(&logs_file_path, json_data);
-                            }
+                        println!("任务执行结果: {}，耗时: {}ms", 
+                            if success { "成功" } else { "失败" }, duration_ms);
+                        if !success {
+                           println!("错误信息: {}", error_message.as_ref().unwrap_or(&"无错误信息".to_string()));
                         }
                     } else {
-                        // 无任务可执行：清理 backlog 以避免陈旧堆积
-                        let mut bl = backlog.lock().unwrap();
-                        bl.clear();
+                        
                     }
                 }
             });
@@ -668,12 +505,6 @@ impl SimpleAutomationManager {
         task.id = uuid::Uuid::new_v4().to_string();
         task.created_at = Utc::now();
         task.updated_at = Utc::now();
-
-        // 如果前端传了 interval_sec，转换为 min_interval_sec（移除max_interval_sec的容错机制）
-        if let Some(interval) = task.interval_sec {
-            task.min_interval_sec = Some(interval);
-            task.max_interval_sec = Some(interval); // 设为相同值，取消容错窗口
-        }
 
         let mut tasks = self.tasks.lock().map_err(|e| e.to_string())?;
         let is_first_task = tasks.is_empty();
@@ -694,12 +525,6 @@ impl SimpleAutomationManager {
 
     pub fn update_task(&self, mut task: AutomationTask) -> Result<(), String> {
         task.updated_at = Utc::now();
-
-        // 如果前端传了 interval_sec，转换为 min_interval_sec（移除max_interval_sec的容错机制）
-        if let Some(interval) = task.interval_sec {
-            task.min_interval_sec = Some(interval);
-            task.max_interval_sec = Some(interval); // 设为相同值，取消容错窗口
-        }
 
         let mut tasks = self.tasks.lock().map_err(|e| e.to_string())?;
         tasks.insert(task.id.clone(), task);
@@ -873,18 +698,47 @@ impl SimpleAutomationManager {
             return Err("设备ID为空".to_string());
         }
         
-        // 构建请求数据
+        // 创建宏替换器并处理文本内容
+        let macro_replacer = MacroReplacer::new();
+        let processed_title = macro_replacer.replace(title);
+        let processed_message = macro_replacer.replace(message);
+        let processed_signature = macro_replacer.replace(signature);
+        let processed_link = link.map(|l| macro_replacer.replace(l));
+        
+        // 如果有宏被替换，输出日志
+        if macro_replacer.contains_macros(title) || 
+           macro_replacer.contains_macros(message) || 
+           macro_replacer.contains_macros(signature) ||
+           link.map_or(false, |l| macro_replacer.contains_macros(l)) {
+            println!("📝 文本任务宏替换:");
+            if processed_title != title {
+                println!("  标题: {} -> {}", title, processed_title);
+            }
+            if processed_message != message {
+                println!("  消息: {} -> {}", message, processed_message);
+            }
+            if processed_signature != signature {
+                println!("  签名: {} -> {}", signature, processed_signature);
+            }
+            if let (Some(original), Some(processed)) = (link, &processed_link) {
+                if processed != original {
+                    println!("  链接: {} -> {}", original, processed);
+                }
+            }
+        }
+        
+        // 构建请求数据（使用处理后的文本）
         let request_data = crate::TextApiRequest {
             device_id: device_id.clone(),
-            title: title.to_string(),
-            message: message.to_string(),
-            signature: signature.to_string(),
+            title: processed_title.clone(),
+            message: processed_message.clone(),
+            signature: processed_signature.clone(),
             icon: icon.map(|s| s.to_string()),
-            link: link.map(|s| s.to_string()),
+            link: processed_link,
         };
 
         println!("📝 发送文本到设备: {}", request_data.device_id);
-        println!("标题: {}, 消息: {}", title, message);
+        println!("标题: {}, 消息: {}", processed_title, processed_message);
         
         let response = client
             .post("https://dot.mindreset.tech/api/open/text")
@@ -1121,69 +975,20 @@ pub fn automation_generate_planned_for_date(
         if let Some(task) = tasks_map.get(task_id) {
             // 根据模式展开：
             if task.fixed_at.is_some() {
+                // 固定时间任务
                 if let Some(fx) = task.fixed_at {
                     push_occ(fx, &task.id);
                 }
-            } else if let Some(interval) = task.interval_sec.or(task.min_interval_sec) {
-                // 优先使用 interval_sec（前端配置），其次使用 min_interval_sec
-                let step = chrono::Duration::seconds(interval.max(1));
-                let mut t = start;
-                
-                // 修复：合理处理历史时间，避免生成过多项目
-                if let Some(last) = task.last_run {
-                    let next_scheduled = last + chrono::Duration::seconds(interval.max(0));
-                    
-                    // 如果下次计划执行时间在今天之内，从该时间开始
-                    if next_scheduled >= start && next_scheduled < end {
-                        t = next_scheduled;
-                    } else if next_scheduled < start {
-                        // 如果下次执行时间在今天之前，说明已经错过了，从今天开始
-                        // 但要找到合适的起始点，避免生成太多项目
-                        let time_since_start = (start - last).num_seconds().max(0);
-                        let intervals_passed = time_since_start / interval.max(1);
-                        t = last + chrono::Duration::seconds(intervals_passed * interval.max(1));
-                        
-                        // 确保不早于今天开始时间
-                        while t < start {
-                            t = t + step;
+            } else if task.interval_sec.is_some() {
+                // 间隔时间任务
+                if let Some(interval_seconds) = task.interval_sec {
+                    if interval_seconds > 0 {
+                        let mut t = start;
+                        while t < end { 
+                            push_occ(t, &task.id); 
+                            t = t + chrono::Duration::seconds(interval_seconds as i64); 
                         }
                     }
-                    // 如果下次执行时间在今天之后，则今天不生成任何项目
-                    else {
-                        println!("📅 任务 {} 下次执行时间 {} 在今天之后，跳过生成", 
-                            task.id, next_scheduled.with_timezone(&Shanghai).format("%Y-%m-%d %H:%M:%S"));
-                        continue;
-                    }
-                }
-                
-                println!("📋 任务 {} 间隔 {}秒，从 {} 开始生成计划项目", 
-                    task.id, interval, t.with_timezone(&Shanghai).format("%H:%M:%S"));
-                
-                // 限制最大生成数量，避免过度生成
-                let max_items = (24 * 3600 / interval.max(1)).min(65535); // 最多1000项或一天的数量
-                let mut count = 0;
-                
-                while t < end && count < max_items {
-                    push_occ(t, &task.id);
-                    t = t + step;
-                    count += 1;
-                }
-                
-                if count >= max_items {
-                    println!("⚠️ 任务 {} 计划项目数量达到上限 {}", task.id, max_items);
-                }
-            } else if let (Some(mini), Some(_maxi)) = (task.min_interval_sec, task.max_interval_sec) {
-                // 兼容旧的 min/max 间隔逻辑
-                let step = chrono::Duration::seconds(mini.max(1));
-                let mut t = start;
-                // 若存在 last_run，当天首个不早于 last_run+min
-                if let Some(last) = task.last_run {
-                    let first_earliest = last + chrono::Duration::seconds(mini.max(0));
-                    if first_earliest > t { t = first_earliest; }
-                }
-                while t < end {
-                    push_occ(t, &task.id);
-                    t = t + step;
                 }
             } else {
                 // cron/默认：支持常见预设，粗略展开
@@ -1273,15 +1078,15 @@ pub fn automation_clear_planned_for_date(
 
 // 辅助函数：检查任务是否应该执行
 // 注意：should_execute_task 和 parse_hour_from_cron 函数已移除
-// 现在只使用计划队列调度，不再使用传统的cron/间隔调度
+// 现在只使用计划队列调度，支持三种模式：固定时间、间隔调度、cron调度
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct CandidatePriority {
-    // kind: 0 = fixed-time, 1 = interval/cron
+    // kind: 0 = fixed-time, 1 = interval, 2 = cron
     kind_rank: u8,
-    // 对 fixed：fixed_at 秒戳；对 interval：time_to_deadline（秒）
+    // 对 fixed：fixed_at 秒戳；对 interval：间隔秒数；对 cron：0
     key1: i64,
-    // 对 interval：min_interval_sec（越小越优先）；对 fixed：0
+    // 对 fixed：0；对 interval：0；对 cron：0（保留用于扩展）
     key2: i64,
     // 进一步稳定排序：last_run 越早越优先（秒戳）
     key3: i64,
@@ -1308,15 +1113,14 @@ impl PartialOrd for CandidatePriority {
 
 // 判断任务是否“到期可选”：
 // - 若存在 fixed_at 且 now >= fixed_at 则可选
-// - 若存在 min interval 则严格按照间隔执行，错过就不再执行
 // - 否则回退到原有 cron 规则（每分钟/每小时/每日某时）
 // 注意：is_task_due 函数已移除，现在只使用计划队列调度
 
 // 计算优先级：
 // - 固定任务：kind_rank=0，key1=fixed_at 秒戳（更早更优），key2=0
-// - 间隔任务：kind_rank=1，key1=距离执行时间的秒数（越接近越优先），key2=minInterval（更小更优）
-// - 其他/仅cron：kind_rank=2，key1=0（或距离下一次执行的估值），key2=0
-fn compute_priority(task: &AutomationTask, now: DateTime<Utc>) -> Option<CandidatePriority> {
+// - 间隔任务：kind_rank=1，key1=间隔秒数（更短更优），key2=0
+// - cron任务：kind_rank=2，key1=0，key2=0
+fn compute_priority(task: &AutomationTask, _now: DateTime<Utc>) -> Option<CandidatePriority> {
     let last_run_ts = task
         .last_run
         .map(|t| t.timestamp())
@@ -1332,20 +1136,11 @@ fn compute_priority(task: &AutomationTask, now: DateTime<Utc>) -> Option<Candida
         });
     }
 
-    if let (Some(min_i), Some(_max_i)) = (task.min_interval_sec, task.max_interval_sec) {
-        let (time_to_next, min_key) = if let Some(last) = task.last_run {
-            let next_run = last + chrono::Duration::seconds(min_i.max(0));
-            // 修改：只计算到下次执行的时间，不使用deadline概念
-            ((next_run - now).num_seconds(), task.min_interval_sec.unwrap_or(0))
-        } else {
-            // 从未执行：设为高优先级，但不是最高
-            (0, task.min_interval_sec.unwrap_or(0))
-        };
-
+    if let Some(interval_sec) = task.interval_sec {
         return Some(CandidatePriority {
             kind_rank: 1,
-            key1: time_to_next.abs(), // 使用绝对值，越接近执行时间越优先
-            key2: min_key,
+            key1: interval_sec as i64, // 间隔越短优先级越高
+            key2: 0,
             key3: last_run_ts,
             id: task.id.clone(),
         });
@@ -1429,17 +1224,47 @@ async fn execute_text_task(
         return Err("设备ID为空".to_string());
     }
     
-    // 构建请求数据
+    // 创建宏替换器并处理文本内容
+    let macro_replacer = MacroReplacer::new();
+    let processed_title = macro_replacer.replace(title);
+    let processed_message = macro_replacer.replace(message);
+    let processed_signature = macro_replacer.replace(signature);
+    let processed_link = link.map(|l| macro_replacer.replace(l));
+    
+    // 如果有宏被替换，输出日志
+    if macro_replacer.contains_macros(title) || 
+       macro_replacer.contains_macros(message) || 
+       macro_replacer.contains_macros(signature) ||
+       link.map_or(false, |l| macro_replacer.contains_macros(l)) {
+        println!("📝 文本任务宏替换:");
+        if processed_title != title {
+            println!("  标题: {} -> {}", title, processed_title);
+        }
+        if processed_message != message {
+            println!("  消息: {} -> {}", message, processed_message);
+        }
+        if processed_signature != signature {
+            println!("  签名: {} -> {}", signature, processed_signature);
+        }
+        if let (Some(original), Some(processed)) = (link, &processed_link) {
+            if processed != original {
+                println!("  链接: {} -> {}", original, processed);
+            }
+        }
+    }
+    
+    // 构建请求数据（使用处理后的文本）
     let request_data = crate::TextApiRequest {
         device_id: device_id.clone(),
-        title: title.to_string(),
-        message: message.to_string(),
-        signature: signature.to_string(),
+        title: processed_title.clone(),
+        message: processed_message.clone(),
+        signature: processed_signature.clone(),
         icon: icon.map(|s| s.to_string()),
-        link: link.map(|s| s.to_string()),
+        link: processed_link,
     };
 
-
+    println!("📝 发送文本到设备: {}", request_data.device_id);
+    println!("标题: {}, 消息: {}", processed_title, processed_message);
     
     let response = client
         .post("https://dot.mindreset.tech/api/open/text")
