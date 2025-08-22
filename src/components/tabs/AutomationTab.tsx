@@ -28,7 +28,7 @@ interface AutomationTask {
   interval_sec?: number; // 单一时间间隔（秒）
   // 前端可选持有：与后端同步的优先级与持续时间
   priority?: number;
-  duration_sec?: number; // 持续时间（秒），默认 300
+  duration_sec?: number; // 持续时间（秒），默认 5
 }
 
 interface TaskExecutionLog {
@@ -169,11 +169,11 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>('cron');
   const [t2iPreview, setT2iPreview] = useState<string>('');
   const [t2iListPreviews, setT2iListPreviews] = useState<Record<string, string>>({});
-  // 队列视图模式：表格 or 日程
-  const [queueView, setQueueView] = useState<'table' | 'agenda'>('table');
+  // 队列视图模式：表格 or 日程 or 省电模式
+  const [queueView, setQueueView] = useState<'table' | 'agenda' | 'power-save'>('table');
   // 日程密度：影响每小时高度
   // 每小时高度（像素），用于控制日程视图刻度密度
-  const [hourHeightPx, setHourHeightPx] = useState<number>(6400);
+  const [hourHeightPx, setHourHeightPx] = useState<number>(12800);
   // 日程视图滚动容器与居中控制
   const agendaScrollRef = useRef<HTMLDivElement | null>(null);
   const hasUserScrolledRef = useRef(false);
@@ -191,7 +191,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
     if (!el) return;
     const now = new Date();
     const nowMinLocal = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-    const minuteHeightLocal = Math.max(64, Math.min(12800, hourHeightPx)) / 60;
+    const minuteHeightLocal = Math.max(64, Math.min(25600, hourHeightPx)) / 60;
     const y = nowMinLocal * minuteHeightLocal;
     const top = el.scrollTop;
     const bottom = top + el.clientHeight;
@@ -235,14 +235,14 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
     task_type: 'text',
     enabled: true,
     schedule: '0 9 * * *',
-    duration_sec: 300,
+    duration_sec: 5,
     device_ids: settings.selectedDeviceId ? (() => {
       const selectedDevice = settings.devices.find(d => d.id === settings.selectedDeviceId);
       return selectedDevice?.serialNumber ? [selectedDevice.serialNumber] : [];
     })() : [],
     config: getDefaultConfigFor('text'),
   });
-  const [planned, setPlanned] = useState<Array<{ id: string; task_id: string; date: string; position: number; status: string; created_at: string; executed_at?: string; scheduled_at?: string; scheduled_end_at?: string }>>([]);
+  const [planned, setPlanned] = useState<Array<{ id: string; task_id: string; date: string; time?: string; position: number; status: string; created_at: string; executed_at?: string; scheduled_at?: string; scheduled_end_at?: string; duration_sec?: number }>>([]);
 
   const todayStr = () => {
     const d = new Date();
@@ -294,7 +294,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
       const today = todayStr();
       console.log('fetchPlanned - 当前日期:', today); // 调试信息
       
-      const items = await invoke<typeof planned>('automation_get_planned_for_date', { date: today });
+  const items = await invoke<typeof planned>('automation_get_planned_for_date', { date: today });
       console.log('fetchPlanned - 获取到的队列项:', items?.length || 0); // 调试信息
       
       // 如果没有队列且有有效任务，自动生成今日队列
@@ -321,6 +321,88 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
   };
 
   const [ordering, setOrdering] = useState<string[]>([]);
+
+  // 高频映射，避免 O(n) 查找
+  const taskById = React.useMemo(() => new Map(tasks.map(t => [t.id, t])), [tasks]);
+  const orderMap = React.useMemo(() => new Map(ordering.map((id, i) => [id, i])), [ordering]);
+
+  // Memo: pre-sort planned by timestamp once; reuse across renders
+  const plannedSortedByTs = React.useMemo(() => {
+    const list = (planned || []).map((p) => ({
+      ...p,
+      _ts: p.scheduled_at ? new Date(p.scheduled_at).getTime() : (p.executed_at ? new Date(p.executed_at).getTime() : 0)
+    }));
+    list.sort((a, b) => a._ts - b._ts);
+    return list;
+  }, [planned]);
+
+  // Helper: format duration label from planned item
+  const getDurationLabel = React.useCallback((p: { duration_sec?: number; scheduled_at?: string; scheduled_end_at?: string; }) => {
+    const sec = typeof p.duration_sec === 'number'
+      ? Math.max(0, Math.round(p.duration_sec))
+      : (() => {
+          if (!p.scheduled_at || !p.scheduled_end_at) return undefined as number | undefined;
+          const ms = new Date(p.scheduled_end_at).getTime() - new Date(p.scheduled_at).getTime();
+          return Math.max(0, Math.round(ms / 1000));
+        })();
+    if (typeof sec !== 'number') return '-';
+    if (sec >= 3600) { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return m === 0 ? `${h} 小时` : `${h} 小时 ${m} 分钟`; }
+    if (sec >= 60) { const m = Math.floor(sec / 60); const s = sec % 60; return s === 0 ? `${m} 分钟` : `${m} 分钟 ${s} 秒`; }
+    return `${sec} 秒`;
+  }, []);
+
+  // Agenda geometry derived values and memoized render helpers
+  const hourHeight = Math.max(64, Math.min(25600, hourHeightPx));
+  const minuteHeight = hourHeight / 60; // 每分钟高度(px)
+  const secondHeight = hourHeight / 3600; // 每秒高度(px)
+  const totalHeight = 24 * hourHeight;
+  const nowSec = React.useMemo(() => {
+    const n = currentTime;
+    return n.getHours() * 3600 + n.getMinutes() * 60 + n.getSeconds();
+  }, [currentTime]);
+
+  const getSecondsOfDay = React.useCallback((iso?: string) => {
+    if (!iso) return 0;
+    const d = new Date(iso);
+    return d.getHours() * 3600 + d.getMinutes() * 60 + d.getSeconds();
+  }, []);
+
+  const hourLabels = React.useMemo(() => {
+    const nodes: any[] = [];
+    for (let m = 0; m <= 1440; m += 60) {
+      const y = Math.min(m * minuteHeight + 2, totalHeight - 14);
+      const hh = Math.floor(m / 60);
+      const label = `${String(hh).padStart(2, '0')}:00`;
+      nodes.push(
+        <div key={`label-h-${m}`} style={{ position: 'absolute', top: y, left: 8, fontSize: 10, color: 'var(--muted-color)', userSelect: 'none' }}>{label}</div>
+      );
+    }
+    return nodes;
+  }, [minuteHeight, totalHeight]);
+
+  const agendaEvents = React.useMemo(() => {
+    const dayMaxSec = 24 * 3600;
+    return planned
+      .filter(p => p.scheduled_at)
+      .map(p => {
+        const sSec = Math.max(0, Math.min(dayMaxSec, getSecondsOfDay(p.scheduled_at)));
+        const durationSec = (() => {
+          if (typeof p.duration_sec === 'number') return Math.max(1, Math.round(p.duration_sec));
+          if (p.scheduled_at && p.scheduled_end_at) {
+            const ms = new Date(p.scheduled_end_at).getTime() - new Date(p.scheduled_at).getTime();
+            return Math.max(1, Math.round(ms / 1000));
+          }
+          return 5; // 默认 5 秒
+        })();
+        const eSecRaw = sSec + durationSec;
+        const eSec = Math.max(sSec + 0.1, Math.min(dayMaxSec, eSecRaw));
+        const top = sSec * secondHeight;
+        const height = Math.max(1, durationSec * secondHeight);
+        const prio = orderMap.has(p.task_id) ? (orderMap.get(p.task_id) as number) : Number.MAX_SAFE_INTEGER;
+        return { p, sSec, eSec, top, height, prio };
+      })
+      .sort((a, b) => a.sSec - b.sSec || a.prio - b.prio);
+  }, [planned, secondHeight, orderMap, getSecondsOfDay]);
 
   useEffect(() => {
     // 以“启用任务在前，禁用任务在后”的全量顺序填充，并按已有 priority 再按名称稳定排序
@@ -694,7 +776,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
         schedule: task.schedule,
         fixed_at: task.fixed_at,
         interval_sec: task.interval_sec,
-  duration_sec: typeof task.duration_sec === 'number' ? task.duration_sec : 300,
+  duration_sec: typeof task.duration_sec === 'number' ? task.duration_sec : 5,
         device_ids: task.device_ids,
         config: task.config,
       });
@@ -708,7 +790,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
         schedule: '0 9 * * *',
         fixed_at: undefined,
         interval_sec: undefined,
-  duration_sec: 300,
+        duration_sec: 5,
         device_ids: settings.selectedDeviceId ? (() => {
           const selectedDevice = settings.devices.find(d => d.id === settings.selectedDeviceId);
           return selectedDevice?.serialNumber ? [selectedDevice.serialNumber] : [];
@@ -857,7 +939,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
         updated_at: new Date().toISOString(),
         fixed_at: sanitizedFixedAt,
         interval_sec: sanitizedInterval,
-        duration_sec: typeof newTask.duration_sec === 'number' ? newTask.duration_sec : 300,
+        duration_sec: typeof newTask.duration_sec === 'number' ? newTask.duration_sec : 5,
       };
 
       if (editingTask) {
@@ -1070,17 +1152,17 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                 <button className="action-button" onClick={() => openTaskModal()}>创建第一个任务</button>
               </div>
             ) : (
-              (() => {
-                const orderMap = new Map(ordering.map((id, i) => [id, i]));
-                const INF = 1e9;
-                const sorted = tasks.slice().sort((a, b) => {
-                  const ia = orderMap.has(a.id) ? (orderMap.get(a.id) as number) : INF;
-                  const ib = orderMap.has(b.id) ? (orderMap.get(b.id) as number) : INF;
-                  if (ia !== ib) return ia - ib;
-                  // fallback by name
-                  return a.name.localeCompare(b.name);
-                });
-                return sorted.map((task) => {
+              tasks
+                .slice()
+                .sort((a, b) => {
+                  const ia = ordering.indexOf(a.id);
+                  const ib = ordering.indexOf(b.id);
+                  const va = ia >= 0 ? ia : Number.POSITIVE_INFINITY;
+                  const vb = ib >= 0 ? ib : Number.POSITIVE_INFINITY;
+                  if (va !== vb) return va - vb;
+                  return (a.name || '').localeCompare(b.name || '');
+                })
+                .map((task) => {
                   const idx = getOrderIndex(task.id);
                   const atTop = idx <= 0;
                   const atBottom = idx === ordering.length - 1;
@@ -1484,8 +1566,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                       </div>
                     </div>
                   );
-                });
-              })()
+                })
             )}
           </div>
         </div>
@@ -1502,6 +1583,17 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 12px 0', flexShrink: 0 }}>
             <h4 style={{ margin: 0 }}>今日执行队列</h4>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                className="action-button"
+                onClick={() => setQueueView('power-save')}
+                style={{
+                  padding: '4px 10px',
+                  background: queueView === 'power-save' ? '#3b82f6' : 'var(--background-color, #fff)',
+                  color: queueView === 'power-save' ? '#fff' : 'inherit',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 6
+                }}
+              >省电</button>
               <button
                 className="action-button"
                 onClick={() => setQueueView('table')}
@@ -1546,12 +1638,11 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
               )}
               {queueView === 'agenda' && (
                 <div style={{ display: 'flex', gap: 10, marginLeft: 8, alignItems: 'center', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
-                  <span style={{ fontSize: 11, color: 'var(--muted-color)' }}>高度</span>
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
                     <button
                       className="action-button"
                       onClick={() => {
-                        const presets = [64, 640, 1280, 2560, 6400, 12800];
+                        const presets = [64, 640, 1280, 2560, 6400, 12800, 25600];
                         const idx = presets.findIndex(v => v === hourHeightPx);
                         const next = idx > 0 ? presets[idx - 1] : presets[0];
                         setHourHeightPx(next);
@@ -1564,7 +1655,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                     <button
                       className="action-button"
                       onClick={() => {
-                        const presets = [64, 640, 1280, 2560, 6400, 12800];
+                        const presets = [64, 640, 1280, 2560, 6400, 12800, 25600];
                         const idx = presets.findIndex(v => v === hourHeightPx);
                         const next = idx >= 0 && idx < presets.length - 1 ? presets[idx + 1] : presets[presets.length - 1];
                         setHourHeightPx(next);
@@ -1574,11 +1665,6 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                       style={{ width: 22, height: 22, minWidth: 22, padding: 0, border: '1px solid var(--border-color)', borderRadius: 6, fontSize: 12, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                     >›</button>
                   </div>
-                  <button
-                    className="action-button"
-                    onClick={() => setHourHeightPx(6400)}
-                    style={{ padding: '2px 4px', minWidth: 44, height: 22, border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--background-color, #fff)', fontSize: 11, lineHeight: 1 }}
-                  >重置</button>
                   {/* 自动居中开关 */}
                   <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted-color)' }}>
                     <input
@@ -1604,13 +1690,55 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
             <div className="empty-state">今日暂无队列</div>
           ) : (
             (() => {
+              if (queueView === 'power-save') {
+                // 省电模式：只显示当前时间，不显示列表
+                return (
+                  <div style={{ 
+                    flex: 1, 
+                    display: 'flex', 
+                    alignItems: 'center', 
+                    justifyContent: 'center',
+                    border: '1px solid var(--border-color)', 
+                    borderRadius: 8,
+                    background: 'var(--panel-bg, #fff)'
+                  }}>
+                    <div style={{ textAlign: 'center', padding: 32 }}>
+                      <div style={{ 
+                        fontSize: 48, 
+                        fontWeight: 700, 
+                        marginBottom: 16,
+                        color: 'var(--primary-color, #3b82f6)',
+                        fontFamily: 'monospace'
+                      }}>
+                        {currentTime.toLocaleTimeString('zh-CN', { hour12: false })}
+                      </div>
+                      <div style={{ 
+                        fontSize: 18, 
+                        color: 'var(--muted-color)',
+                        marginBottom: 8
+                      }}>
+                        {currentTime.toLocaleDateString('zh-CN', { 
+                          weekday: 'long', 
+                          year: 'numeric', 
+                          month: 'long', 
+                          day: 'numeric' 
+                        })}
+                      </div>
+                      <div style={{ 
+                        fontSize: 14, 
+                        color: 'var(--muted-color)',
+                        opacity: 0.7
+                      }}>
+                        省电模式 · 今日共 {planned.length} 项队列
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+              
               if (queueView === 'table') {
-                // 表格视图：展示全部任务，支持滚动，并支持“当前时间”自动居中
                 const nowTs = currentTime.getTime();
-                const withTime = planned.map((p) => ({
-                  ...p,
-                  _ts: p.scheduled_at ? new Date(p.scheduled_at).getTime() : (p.executed_at ? new Date(p.executed_at).getTime() : 0)
-                })).sort((a, b) => a._ts - b._ts);
+
                 return (
                   <div
                     className="queue-container"
@@ -1628,45 +1756,43 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                         </tr>
                       </thead>
                       <tbody>
-            {withTime.filter(p => p._ts > 0 && p._ts <= nowTs).map((p) => {
-                          const t = tasks.find(x => x.id === p.task_id);
-                          return (
-              <tr key={p.id} className="row-past" style={{ opacity: 0.7 }}>
-                              <td>{p.position}</td>
-                              <td>{t?.name || p.task_id}</td>
-                              <td>{(() => { const s = p.scheduled_at as any; return s ? new Date(s).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'; })()}</td>
-                              <td>{(() => {
-                                const sa = p.scheduled_at as any; const ea = p.scheduled_end_at as any; if (!sa || !ea) return '-';
-                                const ms = new Date(ea).getTime() - new Date(sa).getTime();
-                                const sec = Math.max(0, Math.round(ms / 1000));
-                                if (sec >= 3600) { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return m === 0 ? `${h} 小时` : `${h} 小时 ${m} 分钟`; }
-                                else if (sec >= 60) { const m = Math.floor(sec / 60); const s = sec % 60; return s === 0 ? `${m} 分钟` : `${m} 分钟 ${s} 秒`; }
-                                return `${sec} 秒`;
-                              })()}</td>
-                            </tr>
-                          );
-                        })}
+                        {plannedSortedByTs
+                          .filter(p => p._ts > 0 && p._ts <= nowTs)
+                          .map((p) => {
+                            const t = taskById.get(p.task_id);
+                            const startLabel = p.time || p.scheduled_at;
+                            const durationLabel = getDurationLabel(p);
+                            return (
+                              <PlannedRow
+                                key={p.id}
+                                position={p.position}
+                                taskName={t?.name || p.task_id}
+                                startLabel={startLabel || '-'}
+                                durationLabel={durationLabel}
+                                isPast={true}
+                              />
+                            );
+                          })}
                         <tr className="now-separator" style={{ background: 'linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b)', fontWeight: 'bold' }}>
                           <td colSpan={4} style={{ textAlign: 'center', color: '#fff', padding: '8px', fontSize: '14px', textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>⏰ 当前时间：{currentTime.toLocaleString('zh-CN')} ⏰</td>
                         </tr>
-            {withTime.filter(p => p._ts > nowTs).map((p) => {
-                          const t = tasks.find(x => x.id === p.task_id);
-                          return (
-              <tr key={p.id}>
-                              <td>{p.position}</td>
-                              <td>{t?.name || p.task_id}</td>
-                              <td>{(() => { const s = p.scheduled_at as any; return s ? new Date(s).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'; })()}</td>
-                              <td>{(() => {
-                                const sa = p.scheduled_at as any; const ea = p.scheduled_end_at as any; if (!sa || !ea) return '-';
-                                const ms = new Date(ea).getTime() - new Date(sa).getTime();
-                                const sec = Math.max(0, Math.round(ms / 1000));
-                                if (sec >= 3600) { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return m === 0 ? `${h} 小时` : `${h} 小时 ${m} 分钟`; }
-                                else if (sec >= 60) { const m = Math.floor(sec / 60); const s = sec % 60; return s === 0 ? `${m} 分钟` : `${m} 分钟 ${s} 秒`; }
-                                return `${sec} 秒`;
-                              })()}</td>
-                            </tr>
-                          );
-                        })}
+                        {plannedSortedByTs
+                          .filter(p => p._ts > nowTs)
+                          .map((p) => {
+                            const t = taskById.get(p.task_id);
+                            const startLabel = p.time || p.scheduled_at;
+                            const durationLabel = getDurationLabel(p);
+                            return (
+                              <PlannedRow
+                                key={p.id}
+                                position={p.position}
+                                taskName={t?.name || p.task_id}
+                                startLabel={startLabel || '-'}
+                                durationLabel={durationLabel}
+                                isPast={false}
+                              />
+                            );
+                          })}
                       </tbody>
                     </table>
                   </div>
@@ -1674,148 +1800,52 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
               }
 
               // 日程视图
-              // 根据滑块设置每小时高度（像素）
-              const hourHeight = Math.max(64, Math.min(12800, hourHeightPx));
-              const minuteHeight = hourHeight / 60; // 每分钟高度(px)
-              const totalHeight = 24 * hourHeight;
-              const nowMin = (() => {
-                const n = currentTime;
-                return n.getHours() * 60 + n.getMinutes() + n.getSeconds() / 60;
-              })();
-              const getMinutes = (iso?: string) => {
-                if (!iso) return 0;
-                const d = new Date(iso);
-                return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
-              };
-              const orderMap = new Map(ordering.map((id, i) => [id, i]));
-
-              // 自适应刻度密度与标签频率
-              const drawMinute = minuteHeight >= 4;   // >= 4px/分钟 显示1分钟刻度
-              const drawFive = minuteHeight >= 2;     // >= 2px/分钟 显示5分钟刻度
-              const drawQuarter = minuteHeight >= 1;  // >= 1px/分钟 显示15分钟刻度
-
-              const ticks: any[] = [];
-              // 小时线（最粗）
-              for (let i = 0; i <= 1440; i += 60) {
-                const y = Math.min(i * minuteHeight, totalHeight - 1);
-                ticks.push(
-                  <div key={`tick-h-${i}`} style={{ position: 'absolute', top: y, left: 0, right: 0, height: 2, background: 'var(--border-color)' }} />
-                );
-              }
-              // 15分钟线（适中）
-              if (drawQuarter) {
-                for (let i = 15; i < 1440; i += 15) {
-                  if (i % 60 === 0) continue;
-                  const y = Math.min(i * minuteHeight, totalHeight - 1);
-                  ticks.push(
-                    <div key={`tick-q-${i}`} style={{ position: 'absolute', top: y, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.18)' }} />
-                  );
-                }
-              }
-              // 5分钟线（较淡）
-              if (drawFive) {
-                for (let i = 5; i < 1440; i += 5) {
-                  if (i % 15 === 0) continue;
-                  const y = Math.min(i * minuteHeight, totalHeight - 1);
-                  ticks.push(
-                    <div key={`tick-f-${i}`} style={{ position: 'absolute', top: y, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.12)' }} />
-                  );
-                }
-              }
-              // 1分钟线（最淡）
-              if (drawMinute) {
-                for (let i = 1; i < 1440; i += 1) {
-                  if (i % 5 === 0) continue;
-                  const y = Math.min(i * minuteHeight, totalHeight - 1);
-                  ticks.push(
-                    <div key={`tick-m-${i}`} style={{ position: 'absolute', top: y, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.06)' }} />
-                  );
-                }
-              }
-
-              // 标签频率：高密度→5分钟；中密度→15分钟；低密度→60分钟
-              const labelStep = minuteHeight >= 8 ? 5 : (minuteHeight >= 2 ? 15 : 60);
-              const labels: any[] = [];
-              for (let m = 0; m <= 1440; m += labelStep) {
-                const y = Math.min(m * minuteHeight + 2, totalHeight - 14);
-                const hh = Math.floor(m / 60);
-                const mm = m % 60;
-                const label = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
-                labels.push(
-                  <div key={`label-${m}`} style={{ position: 'absolute', top: y, left: 8, fontSize: 10, color: 'var(--muted-color)', userSelect: 'none' }}>{label}</div>
-                );
-              }
-        const events = planned
-                .filter(p => p.scheduled_at)
-                .map(p => {
-                  const s = Math.max(0, Math.min(1440, getMinutes(p.scheduled_at)));
-                  const rawEnd = getMinutes(p.scheduled_end_at) || (s + 5);
-                  const e = Math.max(s + 0.1, Math.min(1440, rawEnd));
-                  const durationMin = Math.max(0.5, e - s);
-          const top = s * minuteHeight;
-          const height = Math.max(1, durationMin * minuteHeight);
-                  const prio = orderMap.has(p.task_id) ? (orderMap.get(p.task_id) as number) : Number.MAX_SAFE_INTEGER;
-                  return { p, s, e, top, height, prio };
-                })
-                .sort((a, b) => a.s - b.s || a.prio - b.prio);
+              // 使用顶部记忆化的派生值与节点
 
               return (
                 <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex' }}>
-                  {/* 可滚动容器 */}
                   <div
                     ref={agendaScrollRef}
                     onScroll={() => { hasUserScrolledRef.current = true; }}
                     style={{ position: 'relative', flex: 1, overflowY: 'auto', overflowX: 'hidden', border: '1px solid var(--border-color)', borderRadius: 8 }}
                   >
-                    {/* 内容区域 */}
-                    <div style={{ position: 'relative', height: totalHeight }}>
-                      {/* 自适应刻度与标签 */}
-                      {ticks}
-                      {labels}
-
-                      {/* 当前时间线 */}
-                      <div style={{ position: 'absolute', top: Math.max(0, Math.min(totalHeight, nowMin * minuteHeight)), left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b)', boxShadow: '0 0 6px rgba(239,68,68,0.5)' }} />
-
-                      {/* 事件块 */}
-                      {events.map(({ p, top, height, prio, e }) => {
-                        const t = tasks.find(x => x.id === p.task_id);
-                        const isPast = e <= nowMin;
-                        // 保证在模态层(overlay)之下：overlay z-index=2000；事件卡片最大不超过 <2000
-                        const z = Math.max(1, 1900 - prio); // 优先级高仍更靠上，但整体低于模态层
+                    <div
+                      style={{
+                        position: 'relative',
+                        height: totalHeight,
+                        // CSS 背景网格：小时线（粗）、15 分/5 分（细）
+                        backgroundImage: [
+                          // 小时线（2px）
+                          `repeating-linear-gradient(to bottom, var(--border-color) 0, var(--border-color) 2px, transparent 2px, transparent ${60 * minuteHeight}px)`,
+                          // 15 分钟线（1px，淡）
+                          `repeating-linear-gradient(to bottom, rgba(0,0,0,0.18) 0, rgba(0,0,0,0.18) 1px, transparent 1px, transparent ${15 * minuteHeight}px)`,
+                          // 5 分钟线（1px，更淡）
+                          `repeating-linear-gradient(to bottom, rgba(0,0,0,0.12) 0, rgba(0,0,0,0.12) 1px, transparent 1px, transparent ${5 * minuteHeight}px)`
+                        ].join(', ')
+                      }}
+                    >
+                      {hourLabels}
+                      <div style={{ position: 'absolute', top: Math.max(0, Math.min(totalHeight, nowSec * secondHeight)), left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b)', boxShadow: '0 0 6px rgba(239,68,68,0.5)' }} />
+                      {agendaEvents.map(({ p, top, height, prio, eSec }) => {
+                        const t = taskById.get(p.task_id);
+                        const isPast = eSec <= nowSec;
+                        const z = Math.max(1, 1900 - prio);
                         const name = t?.name || p.task_id;
-                        const startStr = p.scheduled_at ? new Date(p.scheduled_at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
-                        const durationSec = (() => {
-                          const sa = p.scheduled_at as any; const ea = p.scheduled_end_at as any; if (!sa || !ea) return 0;
-                          return Math.max(0, Math.round((new Date(ea).getTime() - new Date(sa).getTime()) / 1000));
-                        })();
-                        const durationLabel = (() => {
-                          const sec = durationSec;
-                          if (sec >= 3600) { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return m === 0 ? `${h} 小时` : `${h} 小时 ${m} 分钟`; }
-                          else if (sec >= 60) { const m = Math.floor(sec / 60); const s2 = sec % 60; return s2 === 0 ? `${m} 分钟` : `${m} 分钟 ${s2} 秒`; }
-                          return sec > 0 ? `${sec} 秒` : '';
-                        })();
+                        const startStr = p.time || p.scheduled_at || '-';
+                        const durationLabel = p.duration_sec ? `${p.duration_sec} 秒` : '';
+                        const orderIndex = orderMap.get(p.task_id);
                         return (
-                          <div key={p.id} style={{ position: 'absolute', left: 80, right: 8, top, height, zIndex: z }}>
-                            <div style={{
-                              height: '100%',
-                              boxSizing: 'border-box',
-                              borderRadius: 8,
-                              border: '1px solid var(--border-color)',
-                              background: isPast ? 'rgba(107,114,128,0.15)' : 'rgba(59,130,246,0.12)',
-                              boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
-                              backdropFilter: 'blur(2px)',
-                              display: 'flex',
-                              flexDirection: 'column',
-                              padding: 8,
-                              overflow: 'hidden'
-                            }}>
-                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
-                                <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{name}</div>
-                                <div style={{ fontSize: 12, color: 'var(--muted-color)' }}>{startStr}{durationLabel ? ` · ${durationLabel}` : ''}</div>
-                                <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 700 }}>#{orderMap.get(p.task_id) !== undefined ? (orderMap.get(p.task_id)! + 1) : '-'}</span>
-                              </div>
-                            </div>
-                          </div>
+                          <AgendaEvent
+                            key={p.id}
+                            top={top}
+                            height={height}
+                            zIndex={z}
+                            name={name}
+                            startStr={startStr}
+                            durationLabel={durationLabel}
+                            orderDisplay={orderIndex !== undefined ? `#${(orderIndex as number) + 1}` : '-'}
+                            isPast={isPast}
+                          />
                         );
                       })}
                     </div>
@@ -1909,7 +1939,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                       按间隔
                     </label>
                   </div>
-                  <div className="field-hint">固定时间优先；其次按间隔最大值的紧迫度；Cron 最后。一秒只执行一个任务。</div>
+                  <div className="field-hint">固定时间优先；其次按间隔最大值的紧迫度；Cron 最后。</div>
                 </div>
 
                 {scheduleMode === 'cron' && (
@@ -1982,6 +2012,24 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                 )}
 
                 <div className="form-group">
+                  <label>持续时间（秒）</label>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      min={1}
+                      max={86400}
+                      value={typeof newTask.duration_sec === 'number' ? newTask.duration_sec : 5}
+                      onChange={(e) => {
+                        const v = Number(e.target.value || 0);
+                        const clamped = Math.max(1, Math.min(86400, v));
+                        setNewTask({ ...newTask, duration_sec: clamped });
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--muted-color)' }}>用于生成队列时的时间段长度，默认5秒</span>
+                  </div>
+                </div>
+
+                <div className="form-group">
                   <label>目标设备</label>
                   <div className="device-checkboxes">
                     {settings.devices.map((device) => (
@@ -2001,24 +2049,6 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                         {device.nickname || device.serialNumber || `设备 ${device.id.slice(-4)}`}
                       </label>
                     ))}
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label>持续时间（秒）</label>
-                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                    <input
-                      type="number"
-                      min={1}
-                      max={86400}
-                      value={typeof newTask.duration_sec === 'number' ? newTask.duration_sec : 300}
-                      onChange={(e) => {
-                        const v = Number(e.target.value || 0);
-                        const clamped = Math.max(1, Math.min(86400, v));
-                        setNewTask({ ...newTask, duration_sec: clamped });
-                      }}
-                    />
-                    <span style={{ fontSize: 12, color: 'var(--muted-color)' }}>用于生成队列时的时间段长度，默认5分钟</span>
                   </div>
                 </div>
 
@@ -2352,3 +2382,59 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
 };
 
 export default AutomationTab;
+
+// Memoized row for the table view to avoid rerenders on each second tick when props are unchanged
+const PlannedRow = React.memo(function PlannedRow(props: {
+  position: number;
+  taskName: string;
+  startLabel: string;
+  durationLabel: string;
+  isPast: boolean;
+}) {
+  const { position, taskName, startLabel, durationLabel, isPast } = props;
+  return (
+    <tr className={isPast ? 'row-past' : undefined} style={isPast ? { opacity: 0.7 } : undefined}>
+      <td>{position}</td>
+      <td>{taskName}</td>
+      <td>{startLabel}</td>
+      <td>{durationLabel}</td>
+    </tr>
+  );
+});
+
+// Memoized agenda event box
+const AgendaEvent = React.memo(function AgendaEvent(props: {
+  top: number;
+  height: number;
+  zIndex: number;
+  name: string;
+  startStr: string;
+  durationLabel: string;
+  orderDisplay: string;
+  isPast: boolean;
+}) {
+  const { top, height, zIndex, name, startStr, durationLabel, orderDisplay, isPast } = props;
+  return (
+    <div style={{ position: 'absolute', left: 80, right: 8, top, height, zIndex }}>
+      <div style={{
+        height: '100%',
+        boxSizing: 'border-box',
+        borderRadius: 8,
+        border: '1px solid var(--border-color)',
+        background: isPast ? 'rgba(107,114,128,0.4)' : 'rgba(59,130,246,0.5)',
+        boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+        backdropFilter: 'blur(2px)',
+        display: 'flex',
+        flexDirection: 'column',
+        padding: 8,
+        overflow: 'hidden'
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+          <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{name}</div>
+          <div style={{ fontSize: 12, color: 'var(--muted-color)' }}>{startStr}{durationLabel ? ` · ${durationLabel}` : ''}</div>
+          <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 700 }}>{orderDisplay}</span>
+        </div>
+      </div>
+    </div>
+  );
+});

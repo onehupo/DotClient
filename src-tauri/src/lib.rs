@@ -25,7 +25,8 @@ use automation::{
     automation_get_planned_for_date,
     automation_clear_planned_for_date,
 };
-use macro_replacer::MacroReplacer;
+use macro_replacer::{MacroReplacer, MACROS_HELP};
+use automation::TextElement;
 
 #[derive(Serialize, Deserialize)]
 struct TextApiRequest {
@@ -36,6 +37,8 @@ struct TextApiRequest {
     signature: String,
     icon: Option<String>,
     link: Option<String>,
+    #[serde(rename = "refreshNow")]
+    refresh_now: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -44,6 +47,14 @@ struct ImageApiRequest {
     device_id: String,
     image: String,
     link: Option<String>,
+    #[serde(rename = "refreshNow")]
+    refresh_now: bool,
+    // 0: white border, 1: black border
+    border: u8,
+    #[serde(rename = "ditherType")]
+    dither_type: String, // DIFFUSION | ORDERED | NONE
+    #[serde(rename = "ditherKernel")]
+    dither_kernel: String, // THRESHOLD | ATKINSON | BURKES | FLOYD_STEINBERG | SIERRA2 | STUCKI | JARVIS_JUDICE_NINKE | DIFFUSION_ROW | DIFFUSION_COLUMN | DIFFUSION2_D
 }
 
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
@@ -262,15 +273,46 @@ async fn send_text_to_api(
     println!("开始发送文本到API...");
     
     let client = reqwest::Client::new();
-    
-    // 构建请求数据，与Python代码保持一致
+
+    // 宏替换：参考 automation.rs::execute_text_task，对所有文本字段进行宏替换
+    let macro_replacer = MacroReplacer::new();
+    let processed_title = macro_replacer.replace(&title);
+    let processed_message = macro_replacer.replace(&message);
+    let processed_signature = macro_replacer.replace(&signature);
+    let processed_link = link.as_ref().map(|l| macro_replacer.replace(l));
+
+    // 如果有宏被替换，输出日志
+    if macro_replacer.contains_macros(&title)
+        || macro_replacer.contains_macros(&message)
+        || macro_replacer.contains_macros(&signature)
+        || link.as_deref().map_or(false, |l| macro_replacer.contains_macros(l))
+    {
+        println!("📝 文本API调用宏替换:");
+        if processed_title != title {
+            println!("  标题: {} -> {}", title, processed_title);
+        }
+        if processed_message != message {
+            println!("  消息: {} -> {}", message, processed_message);
+        }
+        if processed_signature != signature {
+            println!("  签名: {} -> {}", signature, processed_signature);
+        }
+        if let (Some(original), Some(processed)) = (&link, &processed_link) {
+            if processed != original {
+                println!("  链接: {} -> {}", original, processed);
+            }
+        }
+    }
+
+    // 构建请求数据（使用处理后的文本）
     let request_data = TextApiRequest {
         device_id: device_id.clone(),
-        title: title.clone(),
-        message: message.clone(),
-        signature: signature.clone(),
+        title: processed_title,
+        message: processed_message,
+        signature: processed_signature,
         icon,
-        link,
+    link: processed_link,
+    refresh_now: true,
     };
     
     println!("设备ID: {}", device_id);
@@ -332,11 +374,24 @@ async fn send_image_to_api(
         &image_data
     };
     
-    // 构建请求数据，与Python代码保持一致
+    // 宏替换处理链接（与 automation.rs::execute_image_task 一致）
+    let macro_replacer = MacroReplacer::new();
+    let processed_link = link.as_ref().map(|l| macro_replacer.replace(l));
+    if let (Some(original), Some(processed)) = (&link, &processed_link) {
+        if macro_replacer.contains_macros(original) && processed != original {
+            println!("🖼️ 图片API调用宏替换: 链接 {} -> {}", original, processed);
+        }
+    }
+
+    // 构建请求数据，与Python代码保持一致（使用处理后的链接）
     let request_data = ImageApiRequest {
         device_id: device_id.clone(),
         image: base64_data.to_string(), // base64格式的处理后图片
-        link,
+    link: processed_link,
+    refresh_now: true,
+    border: 0,
+    dither_type: "NONE".to_string(),
+    dither_kernel: "FLOYD_STEINBERG".to_string(),
     };
     
     println!("设备ID: {}", device_id);
@@ -417,6 +472,165 @@ async fn get_available_macros() -> Result<Vec<String>, String> {
     Ok(macro_replacer.list_macros())
 }
 
+#[tauri::command]
+async fn get_macros_help_markdown() -> Result<String, String> {
+    Ok(MACROS_HELP.to_string())
+}
+
+// 使用与前端一致的 HTML5 Canvas 渲染（通过无头 Chrome），并对文本内容进行宏替换
+#[tauri::command]
+async fn render_t2i_via_headless_canvas_api(
+    background_color: String,
+    background_image: Option<String>,
+    texts: Vec<TextElement>,
+) -> Result<String, String> {
+    // 宏替换文本内容
+    let macro_replacer = MacroReplacer::new();
+    let mut processed_texts = Vec::with_capacity(texts.len());
+    for mut t in texts {
+        t.content = macro_replacer.replace(&t.content);
+        processed_texts.push(t);
+    }
+
+    use headless_chrome::{Browser, LaunchOptionsBuilder};
+    use serde_json::json;
+
+    // 画布尺寸
+    let width: u32 = 296;
+    let height: u32 = 152;
+
+    // 将渲染参数序列化为 JSON，供页面脚本读取
+    let payload = json!({
+        "background_color": background_color,
+        "background_image": background_image,
+        "texts": processed_texts,
+        "width": width,
+        "height": height,
+    })
+    .to_string();
+
+    // 内嵌最小 HTML，使用与前端一致的 Canvas API 绘制
+    let html = format!(r##"<!doctype html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <style>html,body{{margin:0;padding:0;background:transparent;}}</style>
+    <!-- 允许内联脚本用于简化在 data: 文档中的渲染 -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self' data: blob:; img-src 'self' data: blob:; script-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:;">
+    <script>window.__PAYLOAD__ = {payload};</script>
+    <title>loading</title>
+    <script>
+    (function(){{
+        const data = window.__PAYLOAD__;
+        window.addEventListener('DOMContentLoaded', function(){{
+            const c = document.getElementById('c');
+            const ctx = c.getContext('2d');
+            function resolveColor(c){{
+                if(!c) return '#ffffff';
+                const v=String(c).toLowerCase();
+                if(v==='white' || v==="#fff" || v==="#ffffff") return '#ffffff';
+                if(v==='black' || v==="#000" || v==="#000000") return '#000000';
+                if(v==='gray' || v==='grey' || v==="#808080") return '#808080';
+                return c;
+            }}
+            function drawBackground(){{
+                let finished = false;
+                const finish = ()=>{{ if(!finished){{ finished = true; drawTexts(); }} }};
+                if (data.background_image){{
+                    const img = new Image();
+                    img.onload = ()=>{{
+                        try {{ ctx.drawImage(img,0,0,{w},{h}); }} catch(_) {{}}
+                        finish();
+                    }};
+                    img.onerror = ()=>{{
+                        // 回退：背景色填充
+                        ctx.fillStyle = resolveColor(data.background_color || 'white');
+                        ctx.fillRect(0,0,{w},{h});
+                        finish();
+                    }};
+                    // 若图片长时间未触发 onload/onerror，则超时回退
+                    setTimeout(()=>{{
+                        if(!finished){{
+                            ctx.fillStyle = resolveColor(data.background_color || 'white');
+                            ctx.fillRect(0,0,{w},{h});
+                            finish();
+                        }}
+                    }}, 2000);
+                    img.src = data.background_image;
+                }} else {{
+                    ctx.fillStyle = resolveColor(data.background_color || 'white');
+                    ctx.fillRect(0,0,{w},{h});
+                    finish();
+                }}
+            }}
+            function drawTexts(){{
+                (data.texts||[]).forEach(t=>{{
+                    if(!t.content) return;
+                    ctx.save();
+                    ctx.translate(t.x||0, t.y||0);
+                    if(t.rotation) ctx.rotate(t.rotation*Math.PI/180);
+                    const weight = t.font_weight||'normal';
+                    const size = (t.font_size||14);
+                    const family = t.font_family||'Arial';
+                    ctx.font = `${{weight}} ${{size}}px ${{family}}`;
+                    ctx.fillStyle = (t.color==='black' ? '#000000' : (t.color==='white' ? '#ffffff' : (t.color||'#000')));
+                    ctx.textAlign = (t.text_align||'left');
+                    ctx.fillText(String(t.content), 0, 0);
+                    ctx.restore();
+                }});
+                document.title = 'ready';
+            }}
+            drawBackground();
+        }});
+    }})();
+    </script>
+</head>
+<body>
+    <canvas id="c" width="{w}" height="{h}"></canvas>
+</body>
+</html>"##, w=width, h=height, payload=payload);
+
+    // 启动无头 Chrome
+    let launch_opts = LaunchOptionsBuilder::default()
+        .headless(true)
+        .build()
+        .map_err(|e| format!("启动 Chrome 失败: {}", e))?;
+    let browser = Browser::new(launch_opts).map_err(|e| format!("创建浏览器失败: {}", e))?;
+    let tab = browser.new_tab().map_err(|e| format!("创建标签页失败: {}", e))?;
+
+    // 使用 data: URL 方式加载内联 HTML
+    // base64 编码需要引入 Engine trait
+    use base64::Engine;
+    let html_b64 = base64::engine::general_purpose::STANDARD.encode(html.as_bytes());
+    let data_url = format!("data:text/html;base64,{}", html_b64);
+    tab.navigate_to(&data_url)
+        .map_err(|e| format!("导航失败: {}", e))?;
+    tab.wait_until_navigated()
+        .map_err(|e| format!("等待导航失败: {}", e))?;
+
+    // 等待页面就绪
+    use std::time::{Duration, Instant};
+    let start = Instant::now();
+    loop {
+        let title = tab.get_title().unwrap_or_default();
+        if title == "ready" { break; }
+        if start.elapsed() > Duration::from_secs(10) {
+            return Err("Canvas渲染超时".into());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    // 读取数据 URL
+    let data_url: String = tab
+        .evaluate("document.getElementById('c').toDataURL('image/png')", false)
+        .map_err(|e| format!("获取数据URL失败: {}", e))?
+        .value
+        .and_then(|v| v.as_str().map(|s| s.to_string()))
+        .ok_or_else(|| "无法读取数据URL".to_string())?;
+
+    Ok(data_url)
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -443,6 +657,7 @@ pub fn run() {
             process_image_with_algorithm, 
             send_text_to_api, 
             send_image_to_api, 
+            render_t2i_via_headless_canvas_api,
             copy_to_clipboard,
             automation_add_task,
             automation_update_task,
@@ -460,7 +675,8 @@ pub fn run() {
             automation_get_enabled,
             automation_generate_planned_for_date,
             automation_get_planned_for_date,
-            automation_clear_planned_for_date
+            automation_clear_planned_for_date,
+            get_macros_help_markdown
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

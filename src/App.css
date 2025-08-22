@@ -296,6 +296,7 @@ button {
   word-wrap: break-word;
   text-align: start;
   /* 添加以下属性实现2行限制 */
+  line-clamp: 2;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -786,14 +787,14 @@ button {
 .examples-button {
   position: fixed;
   top: 20px;
-  right: 228px;
+  right: 280px;
   width: 42px;
   height: 42px;
   border: none;
   border-radius: 50%;
   background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%);
   color: white;
-  font-size: 18px;
+  font-size: 20px;
   cursor: pointer;
   transition: all 0.3s ease;
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
@@ -822,7 +823,7 @@ button {
 .templates-button {
   position: fixed;
   top: 20px;
-  right: 176px;
+  right: 228px;
   width: 42px;
   height: 42px;
   border: none;
@@ -858,7 +859,7 @@ button {
 .tools-button {
   position: fixed;
   top: 20px;
-  right: 124px;
+  right: 176px;
   width: 42px;
   height: 42px;
   border: none;
@@ -887,6 +888,42 @@ button {
 }
 
 .tools-button:active {
+  transform: translateY(0) scale(0.95);
+}
+
+/* 宏替换说明按钮 */
+.macros-help-button {
+  position: fixed;
+  top: 20px;
+  right: 124px; /* 位于设置与工具之间 */
+  width: 42px;
+  height: 42px;
+  border: none;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+  color: white;
+  font-size: 20px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.3);
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  margin: 0;
+  outline: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  appearance: none;
+}
+
+.macros-help-button:hover {
+  transform: translateY(-2px) scale(1.05);
+  box-shadow: 0 6px 20px rgba(6, 182, 212, 0.4);
+}
+
+.macros-help-button:active {
   transform: translateY(0) scale(0.95);
 }
 
@@ -1682,6 +1719,10 @@ button {
   box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);
 }
 
+.dark-mode .settings-button:active {
+  transform: translateY(0) scale(0.95);
+}
+
 .dark-mode .examples-button {
   background: linear-gradient(135deg, #7c3aed 0%, #6d28d9 100%);
   box-shadow: 0 4px 12px rgba(124, 58, 237, 0.3);
@@ -1691,6 +1732,23 @@ button {
   box-shadow: 0 6px 20px rgba(124, 58, 237, 0.4);
 }
 
+.dark-mode .examples-button:active {
+  transform: translateY(0) scale(0.95);
+}
+
+.dark-mode .templates-button {
+  background: linear-gradient(135deg, #059669 0%, #047857 100%);
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.3);
+}
+
+.dark-mode .templates-button:hover {
+  box-shadow: 0 6px 20px rgba(5, 150, 105, 0.4);
+}
+
+.dark-mode .templates-button:active {
+  transform: translateY(0) scale(0.95);
+}
+
 .dark-mode .tools-button {
   background: linear-gradient(135deg, #ec4899 0%, #be185d 100%);
   box-shadow: 0 4px 12px rgba(236, 72, 153, 0.3);
@@ -1698,6 +1756,41 @@ button {
 
 .dark-mode .tools-button:hover {
   box-shadow: 0 6px 20px rgba(236, 72, 153, 0.4);
+}
+
+.dark-mode .tools-button:active {
+  transform: translateY(0) scale(0.95);
+}
+
+/* 深色模式下的宏替换说明按钮 */
+.dark-mode .macros-help-button {
+  background: linear-gradient(135deg, #22d3ee 0%, #60a5fa 100%);
+  box-shadow: 0 4px 12px rgba(34, 211, 238, 0.3);
+}
+
+.dark-mode .macros-help-button:hover {
+  box-shadow: 0 6px 20px rgba(34, 211, 238, 0.4);
+}
+
+.dark-mode .macros-help-button:active {
+  transform: translateY(0) scale(0.95);
+}
+
+.dark-mode .tools-button:active {
+  transform: translateY(0) scale(0.95);
+}
+
+.dark-mode .theme-toggle-button {
+  background: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
+  box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+}
+
+.dark-mode .theme-toggle-button:hover {
+  box-shadow: 0 6px 20px rgba(139, 92, 246, 0.4);
+}
+
+.dark-mode .theme-toggle-button:active {
+  transform: translateY(0) scale(0.95);
 }
 
 /* 示例图片弹窗样式 */
@@ -2231,7 +2324,7 @@ button {
 .example-icons-button {
   position: fixed;
   top: 20px;
-  right: 280px;
+  right: 332px; /* 位于示例按钮更左侧，保持间距 */
   width: 42px;
   height: 42px;
   border: none;
@@ -3312,5 +3405,268 @@ button {
 }
 
 .dark-mode .text-items-container::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* 宏替换说明弹窗样式 */
+.macros-help-modal {
+  background: white;
+  border-radius: 16px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.15);
+  width: 90%;
+  max-width: 600px;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.macros-help-header {
+  padding: 20px 24px 16px 24px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  border-radius: 16px 16px 0 0;
+}
+
+.macros-help-title {
+  margin: 0;
+  color: #1f2937;
+  font-size: 20px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.macros-help-title::before {
+  content: "✨";
+  font-size: 22px;
+}
+
+.macros-help-close {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s ease;
+}
+
+.macros-help-close:hover {
+  background: rgba(239, 68, 68, 0.2);
+  transform: scale(1.1);
+}
+
+.macros-help-content {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  background: white;
+}
+
+.macros-help-markdown {
+  line-height: 1.6;
+  color: #374151;
+}
+
+.macros-help-h2 {
+  color: #1f2937;
+  font-size: 18px;
+  font-weight: 600;
+  margin: 24px 0 12px 0;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #06b6d4;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.macros-help-h2::before {
+  content: "📖";
+  font-size: 16px;
+}
+
+.macros-help-h3 {
+  color: #374151;
+  font-size: 16px;
+  font-weight: 600;
+  margin: 20px 0 8px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.macros-help-h3::before {
+  content: "🔹";
+  font-size: 12px;
+  color: #06b6d4;
+}
+
+.macros-help-p {
+  margin: 8px 0;
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.macros-help-li {
+  margin: 6px 0 6px 16px;
+  color: #4b5563;
+  font-size: 14px;
+  line-height: 1.6;
+  list-style: none;
+  position: relative;
+}
+
+.macros-help-li::before {
+  content: "•";
+  color: #06b6d4;
+  font-weight: bold;
+  position: absolute;
+  left: -16px;
+}
+
+.macros-help-footer {
+  padding: 16px 24px 20px 24px;
+  border-top: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: flex-end;
+  background: #f8fafc;
+  border-radius: 0 0 16px 16px;
+}
+
+.macros-help-footer-button {
+  padding: 10px 24px;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 8px rgba(6, 182, 212, 0.3);
+}
+
+.macros-help-footer-button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(6, 182, 212, 0.4);
+}
+
+.macros-help-footer-button:active {
+  transform: translateY(0);
+}
+
+/* 宏替换弹窗内容滚动条样式 */
+.macros-help-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.macros-help-content::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 3px;
+}
+
+.macros-help-content::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 3px;
+}
+
+.macros-help-content::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 深色模式下的宏替换弹窗样式 */
+.dark-mode .macros-help-modal {
+  background: #1f2937;
+  border: 1px solid #374151;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.4);
+}
+
+.dark-mode .macros-help-header {
+  background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+  border-bottom-color: #374151;
+}
+
+.dark-mode .macros-help-title {
+  color: #f3f4f6;
+}
+
+.dark-mode .macros-help-close {
+  background: rgba(239, 68, 68, 0.15);
+  color: #fca5a5;
+}
+
+.dark-mode .macros-help-close:hover {
+  background: rgba(239, 68, 68, 0.25);
+}
+
+.dark-mode .macros-help-content {
+  background: #1f2937;
+}
+
+.dark-mode .macros-help-markdown {
+  color: #d1d5db;
+}
+
+.dark-mode .macros-help-h2 {
+  color: #f3f4f6;
+  border-bottom-color: #22d3ee;
+}
+
+.dark-mode .macros-help-h3 {
+  color: #e5e7eb;
+}
+
+.dark-mode .macros-help-h3::before {
+  color: #22d3ee;
+}
+
+.dark-mode .macros-help-p {
+  color: #d1d5db;
+}
+
+.dark-mode .macros-help-li {
+  color: #d1d5db;
+}
+
+.dark-mode .macros-help-li::before {
+  color: #22d3ee;
+}
+
+.dark-mode .macros-help-footer {
+  background: #111827;
+  border-top-color: #374151;
+}
+
+.dark-mode .macros-help-footer-button {
+  background: linear-gradient(135deg, #22d3ee 0%, #60a5fa 100%);
+  box-shadow: 0 2px 8px rgba(34, 211, 238, 0.3);
+}
+
+.dark-mode .macros-help-footer-button:hover {
+  box-shadow: 0 4px 12px rgba(34, 211, 238, 0.4);
+}
+
+.dark-mode .macros-help-content::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+.dark-mode .macros-help-content::-webkit-scrollbar-thumb {
+  background: #475569;
+}
+
+.dark-mode .macros-help-content::-webkit-scrollbar-thumb:hover {
   background: #64748b;
 }

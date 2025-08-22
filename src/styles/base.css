@@ -41,7 +41,16 @@ button:hover { border-color: #396cd8; }
 button:active { border-color: #396cd8; background-color: #e8e8e8; }
 #greet-input { margin-right: 5px; }
 /* Dark mode base */
-.dark-mode { color: #f6f6f6; background-color: #2f2f2f; }
+.dark-mode { 
+  color: #f6f6f6; 
+  background-color: #2f2f2f; 
+  /* Dark mode CSS variables */
+  --text-color-dark: #f1f5f9;
+  --text-secondary-dark: #94a3b8;
+  --border-color-dark: #374151;
+  --secondary-bg-dark: #111827;
+  --card-bg-dark: #1f2937;
+}
 .dark-mode a:hover { color: #24c8db; }
 .dark-mode input, .dark-mode button { color: #ffffff; background-color: #0f0f0f98; }
 .dark-mode button:active { background-color: #0f0f0f69; }

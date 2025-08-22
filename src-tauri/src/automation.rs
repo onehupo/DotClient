@@ -6,6 +6,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use std::path::PathBuf;
 use std::fs;
+use std::str::FromStr;
 use base64::Engine; // for encode/decode methods on base64 engine
 use crate::macro_replacer::MacroReplacer;
 use tauri::Emitter; // 使 AppHandle::emit 可用
@@ -33,7 +34,7 @@ pub struct AutomationTask {
     // 用户排序优先级（数值越小优先级越高），前端拖拽排序后会立刻更新
     #[serde(default)]
     pub priority: i32,
-    // 每个任务的持续时长（秒），用于按“日程模式”布局计划队列；默认 300 秒（5 分钟）
+    // 每个任务的持续时长（秒），用于按“日程模式”布局计划队列；默认 5 秒（5 秒）
     #[serde(default)]
     pub duration_sec: Option<u32>,
 }
@@ -103,6 +104,8 @@ pub struct PlannedItem {
     pub id: String,
     pub task_id: String,
     pub date: String, // YYYY-MM-DD（本地或UTC日期，这里采用UTC以简化）
+    #[serde(default)]
+    pub time: String, // HH:MM:SS
     pub position: u32,
     pub status: String, // "pending" | "done" | "skipped"
     pub created_at: DateTime<Utc>,
@@ -111,6 +114,9 @@ pub struct PlannedItem {
     pub scheduled_at: Option<DateTime<Utc>>, // 计划的触发时间
     #[serde(default)]
     pub scheduled_end_at: Option<DateTime<Utc>>, // 计划的结束时间
+    // 新增：计划项持续时长（秒），来源于任务的 duration_sec 或 start/end 差值
+    #[serde(default)]
+    pub duration_sec: Option<u32>,
 }
 
 // 简化版的自动化管理器，用于基础功能
@@ -169,13 +175,6 @@ impl SimpleAutomationManager {
         }
 
         manager
-    }
-
-    // 注册 tauri AppHandle（由初始化代码调用），以便向前端推送事件
-    pub fn register_app_handle(&self, app: tauri::AppHandle) {
-        if let Ok(mut h) = self.app_handle.lock() {
-            *h = Some(app);
-        }
     }
 
     fn tasks_file_path(&self) -> PathBuf {
@@ -755,6 +754,7 @@ impl SimpleAutomationManager {
             signature: processed_signature.clone(),
             icon: icon.map(|s| s.to_string()),
             link: processed_link,
+            refresh_now: true,
         };
 
         println!("📝 发送文本到设备: {}", request_data.device_id);
@@ -829,6 +829,10 @@ impl SimpleAutomationManager {
             device_id: device_id.clone(),
             image: base64_data.to_string(),
             link: processed_link,
+            refresh_now: true,
+            border: 0,
+            dither_type: "NONE".to_string(),
+            dither_kernel: "FLOYD_STEINBERG".to_string(),
         };
 
         println!("🤖 自动化任务: 发送图片到设备 {}", request_data.device_id);
@@ -1143,10 +1147,10 @@ pub fn automation_generate_planned_for_date(
             #[derive(Clone)]
             struct Occ { start: DateTime<Utc>, end: DateTime<Utc>, task_id: String, priority_idx: usize }
             let mut occs: Vec<Occ> = Vec::new();
-            let default_duration = chrono::Duration::seconds(300);
+            let default_duration = chrono::Duration::seconds(5);
             let mut push_occ = |dt: DateTime<Utc>, task: &AutomationTask, pri: usize| {
                 if dt >= start && dt < end {
-                    let dur = chrono::Duration::seconds(task.duration_sec.unwrap_or(300) as i64);
+                    let dur = chrono::Duration::seconds(task.duration_sec.unwrap_or(5) as i64);
                     let duration = if dur > chrono::Duration::zero() { dur } else { default_duration };
                     let st = dt;
                     let ed = st + duration;
@@ -1167,20 +1171,47 @@ pub fn automation_generate_planned_for_date(
                             while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::seconds(interval_seconds as i64); }
                         }
                     } else {
-                        let cron = task.schedule.as_str();
-                        match cron {
-                            "* * * * *" => { let mut t = start; while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::minutes(1); } }
-                            "0 * * * *" => { let mut t = start; while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::hours(1); } }
-                            _ if cron.starts_with("0 ") => {
-                                let hour = cron.split_whitespace().nth(1).and_then(|h| h.parse::<u32>().ok()).unwrap_or(9);
-                                if let Some(local_datetime) = target_date.and_hms_opt(hour, 0, 0) {
-                                    if let Some(sh) = Shanghai.from_local_datetime(&local_datetime).single() {
-                                        let dt = sh.with_timezone(&Utc);
-                                        push_occ(dt, task, pri_idx);
+                        let expr = task.schedule.trim();
+                        // 支持到秒的 6 字段表达式：sec min hour day mon dow
+                        // 也兼容旧的 5 字段（无秒）表达式：min hour day mon dow
+                        // 优先尝试使用 cron crate 解析；失败则回退到既有的简单规则
+                        let mut used_cron = false;
+                        if !expr.is_empty() {
+                            let fields: Vec<&str> = expr.split_whitespace().collect();
+                            if fields.len() == 6 || fields.len() == 5 {
+                                let expr_with_sec = if fields.len() == 5 {
+                                    // 旧 5 字段：默认秒=0
+                                    format!("0 {}", expr)
+                                } else { expr.to_string() };
+                                if let Ok(schedule) = cron::Schedule::from_str(&expr_with_sec) {
+                                    used_cron = true;
+                                    // 在上海时区按天窗口内迭代触发点
+                                    let window_start_local = start.with_timezone(&Shanghai);
+                                    let window_end_local = end.with_timezone(&Shanghai);
+                                    for dt_local in schedule.after(&window_start_local).take_while(|d| *d < window_end_local) {
+                                        let dt_utc = dt_local.with_timezone(&Utc);
+                                        push_occ(dt_utc, task, pri_idx);
                                     }
                                 }
                             }
-                            _ => { let mut t = start; while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::hours(1); } }
+                        }
+
+                        if !used_cron {
+                            // 旧规则回退：每分钟、整点、或简单“0 H * * *”样式
+                            match expr {
+                                "* * * * *" => { let mut t = start; while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::minutes(1); } }
+                                "0 * * * *" => { let mut t = start; while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::hours(1); } }
+                                _ if expr.starts_with("0 ") => {
+                                    let hour = expr.split_whitespace().nth(1).and_then(|h| h.parse::<u32>().ok()).unwrap_or(9);
+                                    if let Some(local_datetime) = target_date.and_hms_opt(hour, 0, 0) {
+                                        if let Some(sh) = Shanghai.from_local_datetime(&local_datetime).single() {
+                                            let dt = sh.with_timezone(&Utc);
+                                            push_occ(dt, task, pri_idx);
+                                        }
+                                    }
+                                }
+                                _ => { let mut t = start; while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::hours(1); } }
+                            }
                         }
                     }
                 }
@@ -1209,16 +1240,20 @@ pub fn automation_generate_planned_for_date(
                     // 构建 PlannedItem 列表（仅该任务）
                     let mut items: Vec<PlannedItem> = Vec::new();
                     for (idx, oc) in list.iter().enumerate() {
+                        let time_str = oc.start.with_timezone(&Shanghai).format("%H:%M:%S").to_string();
+                        let dur_secs = oc.end.signed_duration_since(oc.start).num_seconds().max(0) as u32;
                         items.push(PlannedItem {
                             id: uuid::Uuid::new_v4().to_string(),
                             task_id: tid.clone(),
                             date: date_cloned.clone(),
+                            time: time_str,
                             position: (idx as u32) + 1,
                             status: "pending".into(),
                             created_at: now,
                             executed_at: None,
                             scheduled_at: Some(oc.start),
                             scheduled_end_at: Some(oc.end),
+                            duration_sec: Some(dur_secs),
                         });
                     }
 
@@ -1265,16 +1300,20 @@ pub fn automation_generate_planned_for_date(
             // 生成 PlannedItem
             let mut items: Vec<PlannedItem> = Vec::new();
             for (i, b) in kept.iter().enumerate() {
+                let time_str = b.start.with_timezone(&Shanghai).format("%H:%M:%S").to_string();
+                let dur_secs = b.end.signed_duration_since(b.start).num_seconds().max(0) as u32;
                 items.push(PlannedItem {
                     id: uuid::Uuid::new_v4().to_string(),
                     task_id: b.task_id.clone(),
                     date: date_cloned.clone(),
+                    time: time_str,
                     position: (i as u32) + 1,
                     status: "pending".into(),
                     created_at: now,
                     executed_at: None,
                     scheduled_at: Some(b.start),
                     scheduled_end_at: Some(b.end),
+                    duration_sec: Some(dur_secs),
                 });
             }
 
@@ -1532,7 +1571,8 @@ async fn execute_text_task(
         message: processed_message.clone(),
         signature: processed_signature.clone(),
         icon: icon.map(|s| s.to_string()),
-        link: processed_link,
+    link: processed_link,
+    refresh_now: true,
     };
 
     println!("📝 发送文本到设备: {}", request_data.device_id);
@@ -1607,6 +1647,10 @@ async fn execute_image_task(
         device_id: device_id.clone(),
         image: base64_data.to_string(),
         link: processed_link,
+        refresh_now: true,
+        border: 0,
+        dither_type: "NONE".to_string(),
+        dither_kernel: "FLOYD_STEINBERG".to_string(),
     };
 
     println!("🤖 自动化任务: 发送图片到设备 {}", request_data.device_id);

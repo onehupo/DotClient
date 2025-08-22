@@ -47,3 +47,61 @@
 .clear-button:hover { background: #e0e0e0; color: #333; }
 .modal-description { font-size: 13px; color: #6b7280; margin: 8px 0 0 0; line-height: 1.4; }
 .dark-mode .modal-description { color: #9ca3af; }
+
+/* Macros Help Modal */
+.macros-help-modal { max-width: 800px; width: 90%; max-height: 85vh; display: flex; flex-direction: column; overflow: hidden; }
+.macros-help-modal .modal-header { flex-shrink: 0; padding: 20px 20px 16px 20px; background: white; }
+.macros-help-modal .modal-body { flex: 1; padding: 16px 20px; overflow-y: auto; }
+.macros-help-modal .modal-footer { flex-shrink: 0; padding: 16px 20px 20px 20px; background: white; }
+
+/* Loading state */
+.macros-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; gap: 16px; }
+.loading-spinner { width: 32px; height: 32px; border: 3px solid #e5e7eb; border-top: 3px solid #06b6d4; border-radius: 50%; animation: spin 1s linear infinite; }
+@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+.macros-loading p { color: #6b7280; margin: 0; font-size: 14px; }
+
+/* Categories */
+.macros-categories { display: flex; flex-direction: column; gap: 24px; }
+.macro-category-title { margin: 0 0 12px 0; color: #374151; font-size: 16px; font-weight: 600; text-align: left; padding-bottom: 8px; border-bottom: 2px solid #e5e7eb; }
+
+/* Macros grid */
+.macros-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.macro-item { padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #ffffff; transition: all 0.3s ease; cursor: pointer; display: flex; flex-direction: column; gap: 8px; position: relative; overflow: hidden; }
+.macro-item:hover { border-color: #06b6d4; box-shadow: 0 6px 20px rgba(6,182,212,0.15); transform: translateY(-2px); }
+.macro-item.copied { border-color: #10b981; background: #f0fdf4; box-shadow: 0 6px 20px rgba(16,185,129,0.2); }
+.macro-item.copied::after { content: ''; position: absolute; top: 0; right: 0; width: 0; height: 0; border-style: solid; border-width: 0 20px 20px 0; border-color: transparent #10b981 transparent transparent; }
+
+/* Macro item content */
+.macro-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px; }
+.macro-name { font-family: 'Monaco','Menlo','Ubuntu Mono', monospace; font-size: 14px; font-weight: 600; color: #1f2937; background: #f3f4f6; padding: 4px 8px; border-radius: 6px; border: 1px solid #d1d5db; }
+.macro-copy-icon { font-size: 16px; color: #6b7280; transition: all 0.2s ease; }
+.macro-item:hover .macro-copy-icon { color: #06b6d4; transform: scale(1.1); }
+.macro-item.copied .macro-copy-icon { color: #10b981; }
+.macro-description { font-size: 13px; color: #4b5563; line-height: 1.4; margin: 0; }
+.macro-example { font-size: 12px; color: #8b5cf6; background: rgba(139,92,246,0.1); padding: 4px 8px; border-radius: 4px; margin-top: 4px; border: 1px solid rgba(139,92,246,0.2); font-style: italic; }
+
+/* Error state */
+.macros-error { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; gap: 8px; }
+.macros-error p { color: #6b7280; margin: 0; font-size: 14px; text-align: center; }
+.macros-error p:first-child { font-weight: 500; color: #374151; }
+
+/* Dark mode */
+.dark-mode .macros-help-modal { background: #1f2937; border: 1px solid #374151; }
+.dark-mode .macros-help-modal .modal-header { background: #1f2937; }
+.dark-mode .macros-help-modal .modal-footer { background: #1f2937; }
+.dark-mode .loading-spinner { border-color: #4b5563; border-top-color: #22d3ee; }
+.dark-mode .macros-loading p { color: #9ca3af; }
+.dark-mode .macro-category-title { color: #e5e7eb; border-bottom-color: #4b5563; }
+.dark-mode .macro-item { background: #374151; border-color: #4b5563; }
+.dark-mode .macro-item:hover { border-color: #22d3ee; box-shadow: 0 6px 20px rgba(34,211,238,0.25); background: #3f4a5a; }
+.dark-mode .macro-item.copied { border-color: #10b981; background: #1a2e23; box-shadow: 0 6px 20px rgba(16,185,129,0.3); }
+.dark-mode .macro-name { color: #e5e7eb; background: #4b5563; border-color: #6b7280; }
+.dark-mode .macro-copy-icon { color: #9ca3af; }
+.dark-mode .macro-item:hover .macro-copy-icon { color: #22d3ee; }
+.dark-mode .macro-item.copied .macro-copy-icon { color: #10b981; }
+.dark-mode .macro-description { color: #d1d5db; }
+.dark-mode .macro-example { color: #a78bfa; background: rgba(167,139,250,0.2); border-color: rgba(167,139,250,0.3); }
+.dark-mode .macros-error p { color: #9ca3af; }
+.dark-mode .macros-error p:first-child { color: #d1d5db; }
+.dark-mode .macros-help-modal .modal-footer .modal-close { background: #374151; color: #d1d5db; border: 1px solid #4b5563; }
+.dark-mode .macros-help-modal .modal-footer .modal-close:hover { background: #4b5563; border-color: #6b7280; }

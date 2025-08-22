@@ -5,3 +5,66 @@
 .dark-mode .task-config { background: var(--secondary-bg-dark); border-color: var(--border-color-dark); }
 .dark-mode .device-checkboxes { background: var(--secondary-bg-dark); border-color: var(--border-color-dark); }
 .dark-mode .log-item { background: var(--card-bg-dark); border-color: var(--border-color-dark); }
+
+/* Dark mode task modal buttons */
+.dark-mode .task-modal .modal-header {
+  background: var(--card-bg-dark);
+  border-bottom-color: var(--border-color-dark);
+}
+
+.dark-mode .task-modal .modal-body {
+  background: var(--card-bg-dark);
+}
+
+.dark-mode .task-modal .modal-footer {
+  background: var(--card-bg-dark);
+  border-top-color: var(--border-color-dark);
+}
+
+.dark-mode .task-modal .modal-cancel {
+  background: var(--secondary-bg-dark);
+  color: var(--text-color-dark);
+  border-color: var(--border-color-dark);
+}
+
+.dark-mode .task-modal .modal-cancel:hover {
+  background: var(--border-color-dark);
+  border-color: var(--text-secondary-dark);
+}
+
+.dark-mode .task-modal .modal-save {
+  background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+  box-shadow: 0 2px 8px rgba(37,99,235,0.3);
+}
+
+.dark-mode .task-modal .modal-save:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  box-shadow: 0 4px 12px rgba(37,99,235,0.4);
+}
+
+/* Dark mode scrollbar */
+.dark-mode .task-modal .modal-body::-webkit-scrollbar-thumb {
+  background: var(--border-color-dark);
+}
+
+.dark-mode .task-modal .modal-body::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary-dark);
+}
+
+/* Dark mode schedule mode selector */
+.dark-mode .schedule-mode-selector {
+  background: var(--secondary-bg-dark);
+  border-color: var(--border-color-dark);
+}
+
+.dark-mode .schedule-mode-selector .radio-label {
+  color: var(--text-color-dark);
+}
+
+.dark-mode .schedule-mode-selector .radio-label:hover {
+  color: var(--primary-color);
+}
+
+.dark-mode .interval-hint {
+  color: var(--text-secondary-dark);
+}

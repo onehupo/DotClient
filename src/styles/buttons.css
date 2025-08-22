@@ -1,21 +1,24 @@
 /* Floating round buttons */
-.settings-button, .examples-button, .templates-button, .tools-button, .theme-toggle-button, .example-icons-button { position: fixed; top: 20px; width: 42px; height: 42px; border: none; border-radius: 50%; color: white; cursor: pointer; transition: all 0.3s ease; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; outline: none; -webkit-appearance: none; -moz-appearance: none; appearance: none; }
+.settings-button, .examples-button, .templates-button, .tools-button, .theme-toggle-button, .example-icons-button, .macros-help-button { position: fixed; top: 20px; width: 42px; height: 42px; border: none; border-radius: 50%; color: white; cursor: pointer; transition: all 0.3s ease; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 0; margin: 0; outline: none; -webkit-appearance: none; -moz-appearance: none; appearance: none; }
 .settings-button { right: 72px; font-size: 20px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); box-shadow: 0 4px 12px rgba(102,126,234,0.3); }
 .settings-button:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 6px 20px rgba(102,126,234,0.4); }
 .settings-button:active { transform: translateY(0) scale(0.95); }
-.examples-button { right: 228px; font-size: 18px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); box-shadow: 0 4px 12px rgba(139,92,246,0.3); }
+.examples-button { right: 280px; font-size: 18px; background: linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%); box-shadow: 0 4px 12px rgba(139,92,246,0.3); }
 .examples-button:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 6px 20px rgba(139,92,246,0.4); }
 .examples-button:active { transform: translateY(0) scale(0.95); }
-.templates-button { right: 176px; font-size: 20px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 12px rgba(16,185,129,0.3); }
+.templates-button { right: 228px; font-size: 20px; background: linear-gradient(135deg, #10b981 0%, #059669 100%); box-shadow: 0 4px 12px rgba(16,185,129,0.3); }
 .templates-button:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 6px 20px rgba(16,185,129,0.4); }
 .templates-button:active { transform: translateY(0) scale(0.95); }
-.tools-button { right: 124px; font-size: 20px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); box-shadow: 0 4px 12px rgba(240,147,251,0.3); }
+.tools-button { right: 176px; font-size: 20px; background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); box-shadow: 0 4px 12px rgba(240,147,251,0.3); }
 .tools-button:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 6px 20px rgba(240,147,251,0.4); }
 .tools-button:active { transform: translateY(0) scale(0.95); }
+.macros-help-button { right: 124px; font-size: 20px; background: linear-gradient(135deg, #06b6d4 0%, #3b82f6 100%); box-shadow: 0 4px 12px rgba(6,182,212,0.3); }
+.macros-help-button:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 6px 20px rgba(6,182,212,0.4); }
+.macros-help-button:active { transform: translateY(0) scale(0.95); }
 .theme-toggle-button { right: 20px; font-size: 22px; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); box-shadow: 0 4px 12px rgba(102,126,234,0.3); }
 .theme-toggle-button:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 6px 20px rgba(102,126,234,0.4); }
 .theme-toggle-button:active { transform: translateY(0) scale(0.95); }
-.example-icons-button { right: 280px; font-size: 18px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 12px rgba(245,158,11,0.3); }
+.example-icons-button { right: 332px; font-size: 18px; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 12px rgba(245,158,11,0.3); }
 .example-icons-button:hover { transform: translateY(-2px) scale(1.05); box-shadow: 0 6px 20px rgba(245,158,11,0.4); }
 .example-icons-button:active { transform: translateY(0) scale(0.95); }
 /* Dark variants */
@@ -25,5 +28,7 @@
 .dark-mode .examples-button:hover { box-shadow: 0 6px 20px rgba(124,58,237,0.4); }
 .dark-mode .tools-button { background: linear-gradient(135deg, #ec4899 0%, #be185d 100%); box-shadow: 0 4px 12px rgba(236,72,153,0.3); }
 .dark-mode .tools-button:hover { box-shadow: 0 6px 20px rgba(236,72,153,0.4); }
+.dark-mode .macros-help-button { background: linear-gradient(135deg, #22d3ee 0%, #60a5fa 100%); box-shadow: 0 4px 12px rgba(34,211,238,0.3); }
+.dark-mode .macros-help-button:hover { box-shadow: 0 6px 20px rgba(34,211,238,0.4); }
 .dark-mode .example-icons-button { background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); box-shadow: 0 4px 12px rgba(245,158,11,0.3); }
 .dark-mode .example-icons-button:hover { box-shadow: 0 6px 20px rgba(245,158,11,0.4); }

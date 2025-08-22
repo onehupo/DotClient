@@ -1,5 +1,108 @@
 /* Task modal */
-.task-modal { width: 90%; max-width: 600px; max-height: 80vh; overflow-y: auto; }
+.task-modal { 
+  width: 90%; 
+  max-width: 600px; 
+  max-height: 85vh; 
+  display: flex; 
+  flex-direction: column; 
+  overflow: hidden; 
+  border-radius: 12px;
+}
+
+.task-modal .modal-header {
+  flex-shrink: 0;
+  padding: 20px 20px 16px 20px;
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border-color);
+  border-top-left-radius: 12px;
+  border-top-right-radius: 12px;
+}
+
+.task-modal .modal-body {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  background: var(--card-bg);
+  border-radius: 0;
+}
+
+.task-modal .modal-footer {
+  flex-shrink: 0;
+  padding: 16px 20px 20px 20px;
+  background: var(--card-bg);
+  border-top: 1px solid var(--border-color);
+  border-bottom-left-radius: 12px;
+  border-bottom-right-radius: 12px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+/* 自定义任务模态框按钮样式 */
+.task-modal .modal-cancel,
+.task-modal .modal-save {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  min-width: 80px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.task-modal .modal-cancel {
+  background: var(--secondary-bg);
+  color: var(--text-color);
+  border: 1px solid var(--border-color);
+}
+
+.task-modal .modal-cancel:hover {
+  background: var(--border-color);
+  border-color: var(--text-secondary);
+  transform: translateY(-1px);
+}
+
+.task-modal .modal-save {
+  background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+  color: white;
+  box-shadow: 0 2px 8px rgba(59,130,246,0.2);
+}
+
+.task-modal .modal-save:hover {
+  background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+  box-shadow: 0 4px 12px rgba(59,130,246,0.3);
+  transform: translateY(-1px);
+}
+
+/* 自定义滚动条样式，确保不超过圆角 */
+.task-modal .modal-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.task-modal .modal-body::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 0;
+}
+
+.task-modal .modal-body::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.task-modal .modal-body::-webkit-scrollbar-thumb:hover {
+  background: var(--text-secondary);
+}
+
+/* 确保滚动条在内容区域内 */
+.task-modal .modal-body {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-color) transparent;
+}
 .task-form { display: flex; flex-direction: column; gap: 20px; }
 .form-group { display: flex; flex-direction: column; gap: 8px; }
 .form-group label { font-weight: 500; color: var(--text-color); font-size: 14px; }
@@ -13,9 +116,59 @@
 .task-config h4 { margin: 0 0 16px 0; color: var(--text-color); font-size: 16px; }
 
 /* Schedule mode styles */
-.schedule-mode { margin-bottom: 15px; }
-.schedule-mode label { display: flex; align-items: center; margin-bottom: 10px; cursor: pointer; font-size: 14px; }
-.schedule-mode input[type="radio"] { margin-right: 8px; }
+.schedule-mode-selector { 
+  display: flex; 
+  gap: 16px; 
+  margin-bottom: 15px; 
+  padding: 12px;
+  background: var(--secondary-bg);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.schedule-mode-selector .radio-label { 
+  display: flex; 
+  align-items: center; 
+  cursor: pointer; 
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-color);
+  transition: color 0.2s ease;
+}
+
+.schedule-mode-selector .radio-label:hover {
+  color: var(--primary-color);
+}
+
+.schedule-mode-selector input[type="radio"] { 
+  margin-right: 8px; 
+  accent-color: var(--primary-color);
+}
+
+/* Interval custom styles */
+.interval-custom { 
+  display: flex; 
+  gap: 12px; 
+  align-items: center; 
+  margin-top: 8px;
+}
+
+.interval-input { 
+  flex: 1;
+  max-width: 120px;
+}
+
+.interval-unit { 
+  flex: 0 0 auto;
+  min-width: 80px;
+}
+
+.interval-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 8px;
+  font-style: italic;
+}
 
 /* Interval preset styles */
 .interval-presets { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 8px; margin-bottom: 15px; }

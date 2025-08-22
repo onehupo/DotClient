@@ -44,7 +44,7 @@ const AutomationPage: React.FC<AutomationPageProps> = ({ showToast, settings }) 
   const [currentTime, setCurrentTime] = useState(new Date());
   const [automationEnabled, setAutomationEnabled] = useState(true);
   const [scheduleMode, setScheduleMode] = useState<'cron' | 'interval'>('cron'); // 调度模式
-  const [intervalValue, setIntervalValue] = useState(300); // 间隔值（秒），默认5分钟
+  const [intervalValue, setIntervalValue] = useState(5); // 间隔值（秒），默认5秒钟
   const [intervalUnit, setIntervalUnit] = useState<'seconds' | 'minutes' | 'hours'>('minutes'); // 间隔单位
   const [newTask, setNewTask] = useState<Partial<AutomationTask>>({
     name: '',
@@ -76,6 +76,7 @@ const AutomationPage: React.FC<AutomationPageProps> = ({ showToast, settings }) 
 
   // 预设的时间间隔选项
   const intervalPresets = [
+    { label: '5秒', value: 5, unit: 'seconds' },
     { label: '30秒', value: 30, unit: 'seconds' },
     { label: '1分钟', value: 60, unit: 'seconds' },
     { label: '5分钟', value: 300, unit: 'seconds' },
@@ -391,7 +392,7 @@ const AutomationPage: React.FC<AutomationPageProps> = ({ showToast, settings }) 
     } else {
       setEditingTask(null);
       setScheduleMode('cron');
-      setIntervalValue(300); // 默认5分钟
+      setIntervalValue(5); // 默认5秒钟
       setIntervalUnit('seconds');
       setNewTask({
         name: '',

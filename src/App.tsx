@@ -12,6 +12,7 @@ import ExamplesModal from "./components/modals/ExamplesModal";
 import TemplatesModal from "./components/modals/TemplatesModal";
 import ToolsModal from "./components/modals/ToolsModal";
 import DevicesModal from "./components/modals/DevicesModal";
+import MacrosHelpModal from "./components/modals/MacrosHelpModal";
 import { useToast } from "./components/common/ToastProvider";
 import { resizeImageTo296x152, generateTemplate as generateTemplateImage } from './utils/image';
 import { getSystemFonts, truncateFontName } from './utils/fonts';
@@ -56,6 +57,7 @@ function App() {
   const [showExamples, setShowExamples] = useState(false);
   const [showExampleIcons, setShowExampleIcons] = useState(false);
   const [showDeviceSelector, setShowDeviceSelector] = useState(false);
+  const [showMacrosHelp, setShowMacrosHelp] = useState(false);
   const hasShownRestoreToast = useRef(false); // 跟踪是否已显示过恢复提示
   const hasLoadedTextConfig = useRef(false); // 跟踪是否已加载过文本配置
   // Toasts moved to ToastProvider
@@ -273,6 +275,18 @@ function App() {
     setShowSettings(false);
     setShowTools(true);
   };
+
+  const openMacrosHelp = () => {
+    // 关闭其他弹窗
+    setShowExamples(false);
+    setShowTemplates(false);
+    setShowSettings(false);
+    setShowTools(false);
+    setShowExampleIcons(false);
+    setShowMacrosHelp(true);
+  };
+
+  const closeMacrosHelp = () => setShowMacrosHelp(false);
 
   const closeTools = () => {
     setShowTools(false);
@@ -1023,6 +1037,15 @@ function App() {
         🛠️
       </button>
 
+      {/* 宏替换说明按钮（在设置左侧） */}
+      <button 
+        className="macros-help-button"
+        onClick={openMacrosHelp}
+        title="宏替换说明"
+      >
+        🧩​
+      </button>
+
       {/* 设置按钮 */}
       <button 
         className="settings-button"
@@ -1074,6 +1097,11 @@ function App() {
           onSave={saveSettings}
           onClose={closeSettings}
         />
+      )}
+
+      {/* 宏替换说明模态框 */}
+      {showMacrosHelp && (
+        <MacrosHelpModal onClose={closeMacrosHelp} />
       )}
 
 

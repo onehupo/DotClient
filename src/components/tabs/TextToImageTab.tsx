@@ -283,17 +283,34 @@ const TextToImageTab: React.FC<TextToImageTabProps> = ({
           <button 
             className="action-button export-button"
             onClick={async () => {
-              if (!textToImagePreview) {
+              if (!textToImagePreview || textToImageConfig.texts.length === 0) {
                 showToast('请先配置文本内容', 'error');
                 return;
               }
               try {
                 showToast('正在导出图片...', 'info');
+                // 与发送逻辑保持一致：先让后端进行无头渲染（包含宏替换），再进行保存
+                const dataUrl = await invoke<string>('render_t2i_via_headless_canvas_api', {
+                  backgroundColor: textToImageConfig.backgroundColor,
+                  backgroundImage: textToImageConfig.backgroundImage || null,
+                  texts: textToImageConfig.texts.map(t => ({
+                    id: t.id,
+                    content: t.content,
+                    x: t.x,
+                    y: t.y,
+                    font_size: t.fontSize,
+                    rotation: t.rotation,
+                    font_weight: t.fontWeight,
+                    text_align: t.textAlign,
+                    color: t.color,
+                    font_family: t.fontFamily,
+                  })),
+                });
                 const now = new Date();
                 const dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
                 const timeStr = `${String(now.getHours()).padStart(2, '0')}-${String(now.getMinutes()).padStart(2, '0')}-${String(now.getSeconds()).padStart(2, '0')}`;
                 const filename = `text-to-image-296x152-${dateStr}_${timeStr}.png`;
-                await invoke('save_image_to_downloads', { imageData: textToImagePreview, filename });
+                await invoke('save_image_to_downloads', { imageData: dataUrl, filename });
                 clearToastsByKeyword('正在导出图片');
                 setTimeout(() => showToast(`导出成功！已保存为 ${filename}`, 'success'), 50);
               } catch (error) {
@@ -319,11 +336,29 @@ const TextToImageTab: React.FC<TextToImageTabProps> = ({
               }
               try {
                 showToast('正在发送制图...', 'info');
+                // 先由后端进行无头渲染（包含文本宏替换），保证与自动化路径一致
+                const dataUrl = await invoke<string>('render_t2i_via_headless_canvas_api', {
+                  backgroundColor: textToImageConfig.backgroundColor,
+                  backgroundImage: textToImageConfig.backgroundImage || null,
+                  texts: textToImageConfig.texts.map(t => ({
+                    id: t.id,
+                    content: t.content,
+                    x: t.x,
+                    y: t.y,
+                    font_size: t.fontSize,
+                    rotation: t.rotation,
+                    font_weight: t.fontWeight,
+                    text_align: t.textAlign,
+                    color: t.color,
+                    font_family: t.fontFamily,
+                  })),
+                });
+                // 然后发送图片（link 在后端会再做宏替换）
                 await invoke('send_image_to_api', {
                   apiKey: currentDevice.apiKey,
                   deviceId: currentDevice.serialNumber,
-                  imageData: textToImagePreview,
-                  link: textToImageConfig.link.trim() || null,
+                  imageData: dataUrl,
+                  link: (textToImageConfig.link || '').trim() || null,
                 });
                 clearToastsByKeyword('正在发送制图');
                 setTimeout(() => showToast('制图发送成功！(296×152)', 'success'), 50);
