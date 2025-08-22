@@ -1,15 +1,15 @@
 use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc, TimeZone, Timelike, Datelike, NaiveDate};
 use chrono_tz::Asia::Shanghai;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, VecDeque, HashSet};
 use std::sync::{Arc, Mutex};
-use tauri::Emitter;
 use std::time::Duration;
 use std::path::PathBuf;
 use std::fs;
 use base64::Engine; // for encode/decode methods on base64 engine
-use image::imageops::FilterType;
 use crate::macro_replacer::MacroReplacer;
+use tauri::Emitter; // 使 AppHandle::emit 可用
+// 已不需要 Manager trait；使用 AppHandle::emit 通知前端
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AutomationTask {
@@ -26,11 +26,16 @@ pub struct AutomationTask {
     pub error_count: u64,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
-    // 新增：可选的固定时间与间隔调度字段（保持向后兼容）
     #[serde(default)]
     pub fixed_at: Option<DateTime<Utc>>, // 固定时间（一次性）
     #[serde(default)]
     pub interval_sec: Option<u32>, // 间隔时间（秒）
+    // 用户排序优先级（数值越小优先级越高），前端拖拽排序后会立刻更新
+    #[serde(default)]
+    pub priority: i32,
+    // 每个任务的持续时长（秒），用于按“日程模式”布局计划队列；默认 300 秒（5 分钟）
+    #[serde(default)]
+    pub duration_sec: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -104,6 +109,8 @@ pub struct PlannedItem {
     pub executed_at: Option<DateTime<Utc>>,
     #[serde(default)]
     pub scheduled_at: Option<DateTime<Utc>>, // 计划的触发时间
+    #[serde(default)]
+    pub scheduled_end_at: Option<DateTime<Utc>>, // 计划的结束时间
 }
 
 // 简化版的自动化管理器，用于基础功能
@@ -119,6 +126,8 @@ pub struct SimpleAutomationManager {
     planned: Arc<Mutex<Vec<PlannedItem>>>, // 计划队列（多天）
     // 可选的 Tauri AppHandle，用于在计划更新后推送事件给前端
     app_handle: Arc<Mutex<Option<tauri::AppHandle>>>,
+    // 防抖：避免同一日期并发重复生成
+    planning_inflight: Arc<Mutex<HashSet<String>>>,
 }
 
 impl SimpleAutomationManager {
@@ -141,6 +150,7 @@ impl SimpleAutomationManager {
             backlog: Arc::new(Mutex::new(VecDeque::new())),
             planned: Arc::new(Mutex::new(Vec::new())),
             app_handle: Arc::new(Mutex::new(None)),
+            planning_inflight: Arc::new(Mutex::new(HashSet::new())),
         };
         
         // 加载保存的任务和日志
@@ -660,15 +670,25 @@ impl SimpleAutomationManager {
                 }
             }
             TaskType::TextToImage => {
-                if let TaskConfig::TextToImage { background_color, background_image, link, .. } = &task.config {
-                    // 生成图片（当前版本先忽略文本叠加，使用背景图或纯色背景）
-                    let image_data = generate_t2i_image(background_color, background_image.as_deref())?;
-                    self.execute_image_task(
-                        &task.device_ids,
-                        api_key,
-                        &image_data,
-                        link.as_deref(),
-                    ).await
+                if let TaskConfig::TextToImage { background_color, background_image, texts, link } = &task.config {
+                    // 对所有文本元素进行宏替换，保持与前端一致
+                    let macro_replacer = MacroReplacer::new();
+                    let mut processed_texts = Vec::new();
+                    for t in texts {
+                        let mut nt = t.clone();
+                        nt.content = macro_replacer.replace(&t.content);
+                        processed_texts.push(nt);
+                    }
+
+                    // 在后端用无头浏览器执行与前端一致的 Canvas 渲染
+                    match render_t2i_via_headless_canvas(background_color, background_image.as_deref(), &processed_texts).await {
+                        Ok(data_url) => {
+                            return self.execute_image_task(&task.device_ids, api_key, &data_url, link.as_deref()).await;
+                        }
+                        Err(e) => {
+                            return Err(format!("TextToImage后端渲染失败: {}", e));
+                        }
+                    }
                 } else {
                     Err("任务配置类型不匹配".to_string())
                 }
@@ -782,6 +802,18 @@ impl SimpleAutomationManager {
             return Err("设备ID为空".to_string());
         }
         
+        // 创建宏替换器并处理链接
+        let macro_replacer = MacroReplacer::new();
+        let processed_link = link.map(|l| macro_replacer.replace(l));
+        
+        // 如果链接中有宏被替换，输出日志
+        if let (Some(original), Some(processed)) = (link, &processed_link) {
+            if macro_replacer.contains_macros(original) {
+                println!("🖼️ 图片任务宏替换:");
+                println!("  链接: {} -> {}", original, processed);
+            }
+        }
+        
         // 处理base64数据
         let base64_data = if image_data.starts_with("data:image/") {
             match image_data.find(",") {
@@ -792,11 +824,11 @@ impl SimpleAutomationManager {
             image_data
         };
         
-        // 构建请求数据
+        // 构建请求数据（使用处理后的链接）
         let request_data = crate::ImageApiRequest {
             device_id: device_id.clone(),
             image: base64_data.to_string(),
-            link: link.map(|s| s.to_string()),
+            link: processed_link,
         };
 
         println!("🤖 自动化任务: 发送图片到设备 {}", request_data.device_id);
@@ -910,6 +942,32 @@ pub fn automation_set_api_key(
     state.set_api_key(device_id, api_key)
 }
 
+// 接收两种命名风格的参数，避免前端大小写不一致导致的调用失败
+#[derive(Deserialize)]
+pub struct UpdatePrioritiesArgs {
+    // 支持 ordered_ids 与 orderedIds 两种写法
+    #[serde(alias = "orderedIds")]
+    ordered_ids: Vec<String>,
+}
+
+// 按前端排序更新优先级：ids 顺序即优先级（索引越小优先级越高）
+#[tauri::command]
+pub fn automation_update_priorities(
+    args: UpdatePrioritiesArgs,
+    state: tauri::State<SimpleAutomationManager>
+) -> Result<(), String> {
+    let mut tasks = state.tasks.lock().map_err(|e| e.to_string())?;
+    for (idx, tid) in args.ordered_ids.iter().enumerate() {
+        if let Some(t) = tasks.get_mut(tid) {
+            t.priority = idx as i32; // 从0开始，越小越优先
+            t.updated_at = Utc::now();
+        }
+    }
+    drop(tasks);
+    state.save_tasks();
+    Ok(())
+}
+
 #[tauri::command]
 pub fn automation_set_enabled(
     enabled: bool,
@@ -926,129 +984,326 @@ pub fn automation_get_enabled(
 }
 
 #[tauri::command]
+pub async fn automation_execute_t2i_with_frontend_render(
+    task_id: String,
+    rendered_image_data: String, // 前端渲染好的图片 base64 data URL
+    api_key: String,
+    state: tauri::State<'_, SimpleAutomationManager>
+) -> Result<(), String> {
+    // 获取任务信息（主要是为了获取设备ID和链接）
+    let task = {
+        let tasks = state.tasks.lock().map_err(|e| e.to_string())?;
+        tasks.get(&task_id).cloned()
+            .ok_or_else(|| "任务不存在".to_string())?
+    };
+
+    if !task.enabled {
+        return Err("任务已禁用".to_string());
+    }
+
+    // 提取链接信息（如果有的话）
+    let link = if let TaskConfig::TextToImage { link, .. } = &task.config {
+        link.as_deref()
+    } else {
+        None
+    };
+
+    // 直接使用前端渲染的图片数据执行图片任务
+    execute_image_task(
+        &task.device_ids,
+        &api_key,
+        &rendered_image_data,
+        link,
+    ).await
+}
+
+#[tauri::command]
+pub fn automation_get_t2i_task_with_macros(
+    task_id: String,
+    state: tauri::State<SimpleAutomationManager>
+) -> Result<serde_json::Value, String> {
+    // 获取任务
+    let task = {
+        let tasks = state.tasks.lock().map_err(|e| e.to_string())?;
+        tasks.get(&task_id).cloned()
+            .ok_or_else(|| "任务不存在".to_string())?
+    };
+
+    if let TaskConfig::TextToImage { background_color, background_image, texts, link } = &task.config {
+        // 对所有文本元素进行宏替换
+        let macro_replacer = MacroReplacer::new();
+        let mut processed_texts = Vec::new();
+        
+        for text in texts {
+            let processed_content = macro_replacer.replace(&text.content);
+            
+            // 创建处理后的文本元素
+            let mut processed_text = text.clone();
+            processed_text.content = processed_content;
+            processed_texts.push(processed_text);
+        }
+        
+        // 处理链接中的宏
+        let processed_link = link.as_ref().map(|l| macro_replacer.replace(l));
+        
+        // 返回处理后的配置
+        Ok(serde_json::json!({
+            "background_color": background_color,
+            "background_image": background_image,
+            "texts": processed_texts,
+            "link": processed_link
+        }))
+    } else {
+        Err("任务不是TextToImage类型".to_string())
+    }
+}
+
+#[tauri::command]
 pub fn automation_generate_planned_for_date(
     date: String, // YYYY-MM-DD
     order: Vec<String>, // 按用户排列的 task_id 列表（高优先在前）
     state: tauri::State<SimpleAutomationManager>
 ) -> Result<(), String> {
-    // 打印输入参数
-    // 精简日志：打印日期、order 长度与前 10 项预览，以及 tasks/planned 的数量（若能获取）
+    // 防抖：同一日期若已在生成中，直接忽略
+    {
+        let inflight = state.planning_inflight.lock().map_err(|e| e.to_string())?;
+        if inflight.contains(&date) {
+            println!("⏳ 已有生成任务进行中: {}，忽略重复请求", date);
+            return Ok(());
+        }
+    }
+    {
+        // 标记为进行中
+        let mut inflight = state.planning_inflight.lock().map_err(|e| e.to_string())?;
+        inflight.insert(date.clone());
+    }
+    // 将重计算放到后台线程，避免阻塞前端 UI
     let order_len = order.len();
-    let order_preview: Vec<_> = order.iter().take(10).collect();
-    let tasks_count = match state.tasks.lock() {
-        Ok(m) => m.len(),
-        Err(_) => 0,
-    };
-    let planned_count = match state.planned.lock() {
-        Ok(p) => p.len(),
-        Err(_) => 0,
-    };
+    let order_preview: Vec<_> = order.iter().take(10).cloned().collect();
     println!(
-        "📅 生成计划队列: 日期={}, order_count={}, order_preview={:?}, tasks={}, planned={}",
-        date, order_len, order_preview, tasks_count, planned_count
+        "📅 异步生成计划队列启动: 日期={}, order_count={}, order_preview={:?}",
+        date, order_len, order_preview
     );
-    // 生成当天计划：依据任务调度模式在当天展开多次发生点，按时间排序
-    let now = Utc::now();
-    
-    // 修复：以上海时区为准，队列从当天 00:00:00 到当前的 23:59:59
-    let target_date: NaiveDate = NaiveDate::parse_from_str(&date, "%Y-%m-%d").map_err(|e| e.to_string())?;
-    let local_start_naive = target_date.and_hms_opt(0, 0, 0).ok_or_else(|| "无效的开始时间".to_string())?;
-    let local_day_end_naive = target_date
-        .and_hms_opt(23, 59, 59)
-        .ok_or_else(|| "无效的结束时间".to_string())?;
-    let start = Shanghai.from_local_datetime(&local_start_naive).single().unwrap().with_timezone(&Utc);
-    let end = Shanghai.from_local_datetime(&local_day_end_naive).single().unwrap().with_timezone(&Utc);
 
-    println!("📅 生成计划队列: {} 从上海时区 00:00:00 到次日 23:59:59", date);
-    println!("⏰ 本地时间: {} 到 {}", local_start_naive.format("%Y-%m-%d %H:%M:%S"), local_day_end_naive.format("%Y-%m-%d %H:%M:%S"));
-    println!("⏰ UTC时间范围: {} 到 {}", start.format("%Y-%m-%d %H:%M:%S"), end.format("%Y-%m-%d %H:%M:%S"));
+    // 预先取到文件路径和共享资源，以便在线程中使用
+    let planned_path = state.planned_file_path();
+    let tasks_path = state.tasks_file_path();
+    let tasks_arc = Arc::clone(&state.tasks);
+    let planned_arc = Arc::clone(&state.planned);
+    let app_handle_arc = Arc::clone(&state.app_handle);
+    let inflight_arc = Arc::clone(&state.planning_inflight);
+    let date_cloned = date.clone();
+    let order_cloned = order.clone();
+    let tasks_path_cloned = tasks_path.clone();
+    // 计算每任务计划输出目录（planned_tasks/<date>/）
+    let per_task_root_dir: PathBuf = planned_path
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_else(|| PathBuf::from("."))
+        .join("planned_tasks");
 
-    let tasks_map = state.tasks.lock().map_err(|e| e.to_string())?;
-    let mut occurrences: Vec<(DateTime<Utc>, String)> = Vec::new(); // (scheduled_at, task_id)
+    std::thread::spawn(move || {
+        // 用闭包封装主逻辑，确保最终清理 in-flight 标记
+        let result = (|| {
+            let now = Utc::now();
+            // 解析日期和当天起止时间（按上海时区）
+            let target_date = match NaiveDate::parse_from_str(&date_cloned, "%Y-%m-%d") {
+                Ok(d) => d,
+                Err(e) => { eprintln!("生成计划失败(解析日期): {}", e); return; }
+            };
+            let local_start_naive = match target_date.and_hms_opt(0, 0, 0) { Some(t) => t, None => { eprintln!("无效的开始时间"); return; } };
+            let local_day_end_naive = match target_date.and_hms_opt(23, 59, 59) { Some(t) => t, None => { eprintln!("无效的结束时间"); return; } };
+            let start = Shanghai.from_local_datetime(&local_start_naive).single().unwrap().with_timezone(&Utc);
+            let end = Shanghai.from_local_datetime(&local_day_end_naive).single().unwrap().with_timezone(&Utc);
 
-    // helper: push if in [start,end)
-    let mut push_occ = |dt: DateTime<Utc>, tid: &str| {
-        if dt >= start && dt < end { occurrences.push((dt, tid.to_string())); }
-    };
-
-    for task_id in order.iter() {
-        if let Some(task) = tasks_map.get(task_id) {
-            // 根据模式展开：
-            if task.fixed_at.is_some() {
-                // 固定时间任务
-                if let Some(fx) = task.fixed_at {
-                    push_occ(fx, &task.id);
+            // 同步一次优先级并快照任务列表，尽量缩短锁持有时间
+            let tasks_snapshot: HashMap<String, AutomationTask> = {
+                let mut tasks_map = match tasks_arc.lock() { Ok(g) => g, Err(_) => { eprintln!("任务锁被毒化"); return; } };
+                for (idx, tid) in order_cloned.iter().enumerate() {
+                    if let Some(t) = tasks_map.get_mut(tid) {
+                        t.priority = idx as i32;
+                        t.updated_at = now;
+                    }
                 }
-            } else if task.interval_sec.is_some() {
-                // 间隔时间任务
-                if let Some(interval_seconds) = task.interval_sec {
-                    if interval_seconds > 0 {
-                        let mut t = start;
-                        while t < end { 
-                            push_occ(t, &task.id); 
-                            t = t + chrono::Duration::seconds(interval_seconds as i64); 
+                // 将最新优先级写入 tasks.json（释放锁后写文件）
+                let snapshot = tasks_map.clone();
+                snapshot
+            };
+
+            // 保存 tasks.json 以便前端同步（已包含最新优先级）
+            {
+                let tasks_vec: Vec<AutomationTask> = tasks_snapshot.values().cloned().collect();
+                match serde_json::to_string_pretty(&tasks_vec) {
+                    Ok(json) => { let _ = fs::write(&tasks_path_cloned, json); }
+                    Err(e) => eprintln!("序列化任务失败: {}", e),
+                }
+            }
+
+            // 构造每个任务的当日日程（开始时间 + 持续时间），不做平移
+            #[derive(Clone)]
+            struct Occ { start: DateTime<Utc>, end: DateTime<Utc>, task_id: String, priority_idx: usize }
+            let mut occs: Vec<Occ> = Vec::new();
+            let default_duration = chrono::Duration::seconds(300);
+            let mut push_occ = |dt: DateTime<Utc>, task: &AutomationTask, pri: usize| {
+                if dt >= start && dt < end {
+                    let dur = chrono::Duration::seconds(task.duration_sec.unwrap_or(300) as i64);
+                    let duration = if dur > chrono::Duration::zero() { dur } else { default_duration };
+                    let st = dt;
+                    let ed = st + duration;
+                    if ed <= end {
+                        occs.push(Occ { start: st, end: ed, task_id: task.id.clone(), priority_idx: pri });
+                    }
+                }
+            };
+
+            for (pri_idx, task_id) in order_cloned.iter().enumerate() {
+                if let Some(task) = tasks_snapshot.get(task_id) {
+                    if !task.enabled { continue; }
+                    if let Some(fx) = task.fixed_at {
+                        push_occ(fx, task, pri_idx);
+                    } else if let Some(interval_seconds) = task.interval_sec {
+                        if interval_seconds > 0 {
+                            let mut t = start;
+                            while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::seconds(interval_seconds as i64); }
                         }
-                    }
-                }
-            } else {
-                // cron/默认：支持常见预设，粗略展开
-                let cron = task.schedule.as_str();
-                match cron {
-                    "* * * * *" => {
-                        // 每分钟
-                        let mut t = start;
-                        while t < end { push_occ(t, &task.id); t = t + chrono::Duration::minutes(1); }
-                    }
-                    "0 * * * *" => {
-                        // 每小时，整点
-                        let mut t = start;
-                        while t < end { push_occ(t, &task.id); t = t + chrono::Duration::hours(1); }
-                    }
-                    _ if cron.starts_with("0 ") => {
-                        // 粗略：每天小时=第二段，使用上海时区
-                        let hour = cron.split_whitespace().nth(1).and_then(|h| h.parse::<u32>().ok()).unwrap_or(9);
-                        if let Some(local_datetime) = target_date.and_hms_opt(hour, 0, 0) {
-                            let sh_dt = Shanghai.from_local_datetime(&local_datetime).single();
-                            if let Some(sh) = sh_dt {
-                                let dt = sh.with_timezone(&Utc);
-                                push_occ(dt, &task.id);
+                    } else {
+                        let cron = task.schedule.as_str();
+                        match cron {
+                            "* * * * *" => { let mut t = start; while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::minutes(1); } }
+                            "0 * * * *" => { let mut t = start; while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::hours(1); } }
+                            _ if cron.starts_with("0 ") => {
+                                let hour = cron.split_whitespace().nth(1).and_then(|h| h.parse::<u32>().ok()).unwrap_or(9);
+                                if let Some(local_datetime) = target_date.and_hms_opt(hour, 0, 0) {
+                                    if let Some(sh) = Shanghai.from_local_datetime(&local_datetime).single() {
+                                        let dt = sh.with_timezone(&Utc);
+                                        push_occ(dt, task, pri_idx);
+                                    }
+                                }
                             }
+                            _ => { let mut t = start; while t < end { push_occ(t, task, pri_idx); t = t + chrono::Duration::hours(1); } }
                         }
-                    }
-                    _ => {
-                        // 默认每小时一次
-                        let mut t = start;
-                        while t < end { push_occ(t, &task.id); t = t + chrono::Duration::hours(1); }
                     }
                 }
             }
-        }
-    }
 
-    // 按时间排序，并赋予 position
-    occurrences.sort_by_key(|(dt, _)| *dt);
-    let mut items: Vec<PlannedItem> = Vec::new();
-    for (i, (dt, tid)) in occurrences.into_iter().enumerate() {
-        items.push(PlannedItem {
-            id: uuid::Uuid::new_v4().to_string(),
-            task_id: tid,
-            date: date.clone(),
-            position: (i as u32) + 1,
-            status: "pending".into(),
-            created_at: now,
-            executed_at: None,
-            scheduled_at: Some(dt),
-        });
-    }
-    {
-        let mut planned = state.planned.lock().map_err(|e| e.to_string())?;
-        // 先移除该日期旧项
-        planned.retain(|p| p.date != date);
-        planned.extend(items.clone());
-    }
-    state.save_planned();
-    
-    println!("✅ 计划队列生成完成: {} 共生成 {} 个任务项", date, items.len());
+            // 先为每个单独任务输出当日 planned_queue 文件：planned_tasks/<date>/<task_id>.json
+            // 内容为该任务当天的所有 Occ 列表，未与其它任务合并前的原始计划
+            {
+                use std::collections::HashMap as StdHashMap;
+                // 分组
+                let mut by_task: StdHashMap<String, Vec<&Occ>> = StdHashMap::new();
+                for o in &occs {
+                    by_task.entry(o.task_id.clone()).or_default().push(o);
+                }
+
+                // 确保日期目录存在
+                let day_dir = per_task_root_dir.join(&date_cloned);
+                if let Err(e) = fs::create_dir_all(&day_dir) {
+                    eprintln!("创建每任务计划目录失败: {:?} -> {}", day_dir, e);
+                }
+
+                for (tid, mut list) in by_task.into_iter() {
+                    // 按开始时间排序
+                    list.sort_by_key(|o| o.start);
+
+                    // 构建 PlannedItem 列表（仅该任务）
+                    let mut items: Vec<PlannedItem> = Vec::new();
+                    for (idx, oc) in list.iter().enumerate() {
+                        items.push(PlannedItem {
+                            id: uuid::Uuid::new_v4().to_string(),
+                            task_id: tid.clone(),
+                            date: date_cloned.clone(),
+                            position: (idx as u32) + 1,
+                            status: "pending".into(),
+                            created_at: now,
+                            executed_at: None,
+                            scheduled_at: Some(oc.start),
+                            scheduled_end_at: Some(oc.end),
+                        });
+                    }
+
+                    // 写入文件 planned_tasks/<date>/<task_id>.json
+                    let file_path = day_dir.join(format!("{}.json", tid));
+                    match serde_json::to_string_pretty(&items) {
+                        Ok(json) => {
+                            if let Err(e) = fs::write(&file_path, json) {
+                                eprintln!("写入每任务计划失败: {:?} -> {}", file_path, e);
+                            }
+                        }
+                        Err(e) => eprintln!("序列化每任务计划失败 (task={}): {}", tid, e),
+                    }
+                }
+            }
+
+            // 先按优先级索引（数值大=低优先）与开始时间排序
+            occs.sort_by(|a, b| a.priority_idx.cmp(&b.priority_idx).then(a.start.cmp(&b.start)));
+
+            // 合并执行队列：先放入低优先（索引大），再放入高优先（索引小），
+            // 如果低优先的开始时间落在高优先的持续区间内，则移除该低优先任务
+            let mut kept: Vec<Occ> = Vec::new();
+            if !occs.is_empty() {
+                let max_pri = occs.iter().map(|o| o.priority_idx).max().unwrap_or(0);
+                for current_pri in (0..=max_pri).rev() { // 从低优先到高优先
+                    // 本优先级的所有 occ，按开始时间排序
+                    let mut current: Vec<Occ> = occs.iter().filter(|o| o.priority_idx == current_pri).cloned().collect();
+                    current.sort_by_key(|o| o.start);
+                    for hb in current {
+                        // 高优先进入时，清理 kept 中低优先（priority_idx > current_pri）且 start ∈ [hb.start, hb.end)
+                        kept.retain(|low| {
+                            if low.priority_idx > current_pri {
+                                !(low.start >= hb.start && low.start < hb.end)
+                            } else { true }
+                        });
+                        // 将当前（可能是低优先或更高优先）加入 kept
+                        kept.push(hb);
+                    }
+                }
+            }
+            // 输出按开始时间排序
+            kept.sort_by(|a, b| a.start.cmp(&b.start).then(a.priority_idx.cmp(&b.priority_idx)));
+
+            // 生成 PlannedItem
+            let mut items: Vec<PlannedItem> = Vec::new();
+            for (i, b) in kept.iter().enumerate() {
+                items.push(PlannedItem {
+                    id: uuid::Uuid::new_v4().to_string(),
+                    task_id: b.task_id.clone(),
+                    date: date_cloned.clone(),
+                    position: (i as u32) + 1,
+                    status: "pending".into(),
+                    created_at: now,
+                    executed_at: None,
+                    scheduled_at: Some(b.start),
+                    scheduled_end_at: Some(b.end),
+                });
+            }
+
+            // 写回 merged planned（清空旧内容，只保留本次生成的队列），并保存到磁盘
+            {
+                let mut planned = match planned_arc.lock() { Ok(g) => g, Err(_) => { eprintln!("计划队列锁被毒化"); return; } };
+                planned.clear();
+                planned.extend(items.clone());
+                if let Ok(json) = serde_json::to_string_pretty(&*planned) { let _ = fs::write(&planned_path, json); }
+            }
+
+            // 通知任务列表已更新（优先级写盘），以及计划队列已生成
+            if let Ok(h) = app_handle_arc.lock() {
+                if let Some(handle) = &*h { let _ = handle.emit("automation:tasks:updated", serde_json::json!({"saved": true})); }
+            }
+            // 发送完成事件（若前端监听可刷新）
+            if let Ok(h) = app_handle_arc.lock() {
+                if let Some(handle) = &*h { let _ = handle.emit("automation:planned:generated", serde_json::json!({"date": date_cloned, "count": items.len()})); }
+            }
+
+            println!("✅ 计划队列生成完成(异步): {} 共生成 {} 个任务项", date_cloned, items.len());
+        })();
+
+        // 清理 in-flight 标记
+        if let Ok(mut inflight) = inflight_arc.lock() {
+            inflight.remove(&date_cloned);
+        }
+    });
+
     Ok(())
 }
 
@@ -1082,6 +1337,8 @@ pub fn automation_clear_planned_for_date(
 
 #[derive(Debug, Clone, Eq, PartialEq)]
 struct CandidatePriority {
+    // 用户定义的优先级（数值越小越优先）
+    user_priority: i32,
     // kind: 0 = fixed-time, 1 = interval, 2 = cron
     kind_rank: u8,
     // 对 fixed：fixed_at 秒戳；对 interval：间隔秒数；对 cron：0
@@ -1096,8 +1353,9 @@ struct CandidatePriority {
 
 impl Ord for CandidatePriority {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        // 注意：我们希望 fixed 优先（kind_rank 小者优先），key 越小越优先
-        self.kind_rank.cmp(&other.kind_rank)
+        // 先看用户优先级；相同再看调度类型；再比较 key；再看 last_run；最后按 id 稳定
+        self.user_priority.cmp(&other.user_priority)
+            .then(self.kind_rank.cmp(&other.kind_rank))
             .then(self.key1.cmp(&other.key1))
             .then(self.key2.cmp(&other.key2))
             .then(self.key3.cmp(&other.key3))
@@ -1125,9 +1383,11 @@ fn compute_priority(task: &AutomationTask, _now: DateTime<Utc>) -> Option<Candid
         .last_run
         .map(|t| t.timestamp())
         .unwrap_or(0);
+    let user_p = task.priority;
 
     if let Some(fixed_at) = task.fixed_at {
         return Some(CandidatePriority {
+            user_priority: user_p,
             kind_rank: 0,
             key1: fixed_at.timestamp(),
             key2: 0,
@@ -1138,6 +1398,7 @@ fn compute_priority(task: &AutomationTask, _now: DateTime<Utc>) -> Option<Candid
 
     if let Some(interval_sec) = task.interval_sec {
         return Some(CandidatePriority {
+            user_priority: user_p,
             kind_rank: 1,
             key1: interval_sec as i64, // 间隔越短优先级越高
             key2: 0,
@@ -1148,6 +1409,7 @@ fn compute_priority(task: &AutomationTask, _now: DateTime<Utc>) -> Option<Candid
 
     // 仅 cron：给最低优先级
     Some(CandidatePriority {
+    user_priority: user_p,
         kind_rank: 2,
         key1: 0,
         key2: 0,
@@ -1187,14 +1449,24 @@ async fn execute_task_by_type(task: &AutomationTask, api_key: &str) -> Result<()
             }
         }
         TaskType::TextToImage => {
-            if let TaskConfig::TextToImage { background_color, background_image, link, .. } = &task.config {
-                let image_data = generate_t2i_image(background_color, background_image.as_deref())?;
-                execute_image_task(
-                    &task.device_ids,
-                    api_key,
-                    &image_data,
-                    link.as_deref(),
-                ).await
+            if let TaskConfig::TextToImage { background_color, background_image, texts, link } = &task.config {
+                // 与前端一致的宏替换
+                let macro_replacer = MacroReplacer::new();
+                let processed_texts: Vec<TextElement> = texts.iter().map(|t| {
+                    let mut nt = t.clone();
+                    nt.content = macro_replacer.replace(&t.content);
+                    nt
+                }).collect();
+
+                match render_t2i_via_headless_canvas(background_color, background_image.as_deref(), &processed_texts).await {
+                    Ok(data_url) => {
+                        return execute_image_task(&task.device_ids, api_key, &data_url, link.as_deref()).await;
+                    }
+                    Err(e) => {
+                        println!("❌ 后端Canvas渲染失败: {}", e);
+                        return Err(format!("TextToImage任务渲染失败: {}", e));
+                    }
+                }
             } else {
                 Err("任务配置类型不匹配".to_string())
             }
@@ -1308,6 +1580,18 @@ async fn execute_image_task(
         return Err("设备ID为空".to_string());
     }
     
+    // 创建宏替换器并处理链接
+    let macro_replacer = MacroReplacer::new();
+    let processed_link = link.map(|l| macro_replacer.replace(l));
+    
+    // 如果链接中有宏被替换，输出日志
+    if let (Some(original), Some(processed)) = (link, &processed_link) {
+        if macro_replacer.contains_macros(original) {
+            println!("🖼️ 图片任务宏替换:");
+            println!("  链接: {} -> {}", original, processed);
+        }
+    }
+    
     // 处理base64数据
     let base64_data = if image_data.starts_with("data:image/") {
         match image_data.find(",") {
@@ -1318,11 +1602,11 @@ async fn execute_image_task(
         image_data
     };
     
-    // 构建请求数据
+    // 构建请求数据（使用处理后的链接）
     let request_data = crate::ImageApiRequest {
         device_id: device_id.clone(),
         image: base64_data.to_string(),
-        link: link.map(|s| s.to_string()),
+        link: processed_link,
     };
 
     println!("🤖 自动化任务: 发送图片到设备 {}", request_data.device_id);
@@ -1350,66 +1634,125 @@ async fn execute_image_task(
     Ok(())
 }
 
-// 生成制图任务的图片（296x152 PNG base64 data URL）
-fn generate_t2i_image(background_color: &str, background_image: Option<&str>) -> Result<String, String> {
-    let width = 296u32;
-    let height = 152u32;
+// 使用与前端一致的 HTML5 Canvas 渲染（通过无头 Chrome）
+async fn render_t2i_via_headless_canvas(
+        background_color: &str,
+        background_image: Option<&str>,
+        texts: &[TextElement],
+) -> Result<String, String> {
+        use headless_chrome::{Browser, LaunchOptionsBuilder};
+        use serde_json::json;
 
-    // 如果有背景图片，优先使用背景图片并调整到 296x152
-    if let Some(bg) = background_image {
-        let base64_data = if bg.starts_with("data:image/") {
-            match bg.find(',') { Some(pos) => &bg[pos + 1..], None => bg }
-        } else { bg };
+        // 画布尺寸
+        let width: u32 = 296;
+        let height: u32 = 152;
 
-        let bytes = base64::engine::general_purpose::STANDARD
-            .decode(base64_data)
-            .map_err(|e| format!("背景图片base64解码失败: {}", e))?;
+        // 将渲染参数序列化为 JSON，供页面脚本读取
+        let payload = json!({
+                "background_color": background_color,
+                "background_image": background_image,
+                "texts": texts,
+                "width": width,
+                "height": height,
+        }).to_string();
 
-        let img = image::load_from_memory(&bytes)
-            .map_err(|e| format!("加载背景图片失败: {}", e))?;
-        let resized = img.resize_exact(width, height, FilterType::Triangle);
+        // 内嵌最小 HTML，使用同前端逻辑的 Canvas API 绘制
+        // 注：如前端有现成的渲染脚本，可将逻辑拷贝到这里保持一致
+    let html = format!(r##"<!doctype html>
+<html>
+<head>
+    <meta charset='utf-8'>
+    <style>html,body{{margin:0;padding:0;background:transparent;}}</style>
+</head>
+<body>
+    <canvas id="c" width="{w}" height="{h}"></canvas>
+    <script>
+    (function(){{
+        const data = {payload};
+        const c = document.getElementById('c');
+        const ctx = c.getContext('2d');
 
-        let mut buffer = Vec::new();
-        {
-            let mut cursor = std::io::Cursor::new(&mut buffer);
-            resized
-                .write_to(&mut cursor, image::ImageFormat::Png)
-                .map_err(|e| format!("编码PNG失败: {}", e))?;
+        function resolveColor(c){{
+            if(!c) return '#ffffff';
+            const v=String(c).toLowerCase();
+            if(v==='white' || v==="#fff" || v==="#ffffff") return '#ffffff';
+            if(v==='black' || v==="#000" || v==="#000000") return '#000000';
+            if(v==='gray' || v==='grey' || v==="#808080") return '#808080';
+            return c;
+        }}
+        function drawBackground(){{
+            if (data.background_image){{
+                const img = new Image();
+                img.onload = ()=>{{
+                    ctx.drawImage(img,0,0,{w},{h});
+                    drawTexts();
+                }};
+                img.src = data.background_image;
+            }} else {{
+                ctx.fillStyle = resolveColor(data.background_color || 'white');
+                ctx.fillRect(0,0,{w},{h});
+                drawTexts();
+            }}
+        }}
+
+        function drawTexts(){{
+            (data.texts||[]).forEach(t=>{{
+                if(!t.content) return;
+                ctx.save();
+                ctx.translate(t.x||0, t.y||0);
+                if(t.rotation) ctx.rotate(t.rotation*Math.PI/180);
+                const weight = t.font_weight||'normal';
+                const size = (t.font_size||14);
+                const family = t.font_family||'Arial';
+                ctx.font = `${{weight}} ${{size}}px ${{family}}`;
+                ctx.fillStyle = (t.color==='black' ? '#000000' : (t.color==='white' ? '#ffffff' : (t.color||'#000')));
+                ctx.textAlign = (t.text_align||'left');
+                ctx.fillText(String(t.content), 0, 0);
+                ctx.restore();
+            }});
+            // 通知 Rust 可以截图
+            document.title = 'ready';
+        }}
+
+        drawBackground();
+    }})();
+    </script>
+</body>
+</html>"##, w=width, h=height, payload=payload);
+
+        // 启动无头 Chrome
+        let launch_opts = LaunchOptionsBuilder::default()
+                .headless(true)
+                .build()
+                .map_err(|e| format!("启动 Chrome 失败: {}", e))?;
+        let browser = Browser::new(launch_opts).map_err(|e| format!("创建浏览器失败: {}", e))?;
+        let tab = browser.new_tab().map_err(|e| format!("创建标签页失败: {}", e))?;
+
+        // 加载内联 HTML（使用 data: URL base64 编码，避免 set_content API 兼容问题）
+        let html_b64 = base64::engine::general_purpose::STANDARD.encode(html.as_bytes());
+        let data_url = format!("data:text/html;base64,{}", html_b64);
+        tab.navigate_to(&data_url).map_err(|e| format!("导航失败: {}", e))?;
+        tab.wait_until_navigated().map_err(|e| format!("等待导航失败: {}", e))?;
+
+        // 等待页面 title 变为 'ready'
+        use std::time::{Duration, Instant};
+        let start = Instant::now();
+        loop {
+                let title = tab.get_title().unwrap_or_default();
+                if title == "ready" { break; }
+                if start.elapsed() > Duration::from_secs(5) {
+                        return Err("Canvas渲染超时".into());
+                }
+                std::thread::sleep(Duration::from_millis(50));
         }
 
-        let b64 = base64::engine::general_purpose::STANDARD.encode(&buffer);
-        return Ok(format!("data:image/png;base64,{}", b64));
-    }
+        // 从页面获取数据 URL（避免裁剪问题）
+        let data_url: String = tab
+                .evaluate("document.getElementById('c').toDataURL('image/png')", false)
+                .map_err(|e| format!("获取数据URL失败: {}", e))?
+                .value
+                .and_then(|v| v.as_str().map(|s| s.to_string()))
+                .ok_or_else(|| "无法读取数据URL".to_string())?;
 
-    // 否则创建纯色背景
-    let mut img = image::RgbImage::new(width, height);
-
-    let color = match normalize_color(background_color) {
-        (r, g, b) => image::Rgb([r, g, b])
-    };
-
-    for pixel in img.pixels_mut() {
-        *pixel = color;
-    }
-
-    let mut buffer = Vec::new();
-    {
-        let mut cursor = std::io::Cursor::new(&mut buffer);
-        image::DynamicImage::ImageRgb8(img)
-            .write_to(&mut cursor, image::ImageFormat::Png)
-            .map_err(|e| format!("编码PNG失败: {}", e))?;
-    }
-    let b64 = base64::engine::general_purpose::STANDARD.encode(&buffer);
-    Ok(format!("data:image/png;base64,{}", b64))
-}
-
-// 解析配置中的颜色名称到RGB
-fn normalize_color(c: &str) -> (u8, u8, u8) {
-    let v = c.trim().to_lowercase();
-    match v.as_str() {
-        "white" | "#fff" | "#ffffff" => (255, 255, 255),
-        "black" | "#000" | "#000000" => (0, 0, 0),
-        "gray" | "grey" | "#808080" => (128, 128, 128),
-        _ => (255, 255, 255), // 默认白色
-    }
+        Ok(data_url)
 }

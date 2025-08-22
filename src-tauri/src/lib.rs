@@ -9,10 +9,13 @@ use automation::{
     SimpleAutomationManager,
     automation_add_task,
     automation_update_task,
+    automation_update_priorities,
     automation_delete_task,
     automation_get_tasks,
     automation_get_logs,
     automation_execute_task,
+    automation_execute_t2i_with_frontend_render,
+    automation_get_t2i_task_with_macros,
     automation_start_background_tasks,
     automation_sync_api_keys,
     automation_set_enabled,
@@ -443,18 +446,21 @@ pub fn run() {
             copy_to_clipboard,
             automation_add_task,
             automation_update_task,
+            automation_update_priorities,
             automation_delete_task,
             automation_get_tasks,
             automation_get_logs,
             automation_execute_task,
+            automation_execute_t2i_with_frontend_render,
+            automation_get_t2i_task_with_macros,
             automation_start_background_tasks,
             automation_sync_api_keys,
             automation_set_api_key,
             automation_set_enabled,
-            automation_get_enabled
-            ,automation_generate_planned_for_date
-            ,automation_get_planned_for_date
-            ,automation_clear_planned_for_date
+            automation_get_enabled,
+            automation_generate_planned_for_date,
+            automation_get_planned_for_date,
+            automation_clear_planned_for_date
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

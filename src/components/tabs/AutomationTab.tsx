@@ -1,5 +1,6 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import type { Settings } from '../../types';
 import { resizeImageTo296x152 } from '../../utils/image';
 import {
@@ -25,6 +26,9 @@ interface AutomationTask {
   updated_at: string;
   fixed_at?: string; // ISO
   interval_sec?: number; // 单一时间间隔（秒）
+  // 前端可选持有：与后端同步的优先级与持续时间
+  priority?: number;
+  duration_sec?: number; // 持续时间（秒），默认 300
 }
 
 interface TaskExecutionLog {
@@ -165,18 +169,80 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
   const [scheduleMode, setScheduleMode] = useState<ScheduleMode>('cron');
   const [t2iPreview, setT2iPreview] = useState<string>('');
   const [t2iListPreviews, setT2iListPreviews] = useState<Record<string, string>>({});
+  // 队列视图模式：表格 or 日程
+  const [queueView, setQueueView] = useState<'table' | 'agenda'>('table');
+  // 日程密度：影响每小时高度
+  // 每小时高度（像素），用于控制日程视图刻度密度
+  const [hourHeightPx, setHourHeightPx] = useState<number>(6400);
+  // 日程视图滚动容器与居中控制
+  const agendaScrollRef = useRef<HTMLDivElement | null>(null);
+  const hasUserScrolledRef = useRef(false);
+  const hasCenteredRef = useRef(false);
+  // 表格视图滚动容器与居中控制
+  const tableScrollRef = useRef<HTMLDivElement | null>(null);
+  const tableHasUserScrolledRef = useRef(false);
+  const tableHasCenteredRef = useRef(false);
+  // 自动居中开关
+  const [autoCenterNow, setAutoCenterNow] = useState<boolean>(true);
+
+  // 使“当前时间线”居中；当 force=false 时，仅在超出可视范围才居中
+  const centerNow = (force = false) => {
+    const el = agendaScrollRef.current;
+    if (!el) return;
+    const now = new Date();
+    const nowMinLocal = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    const minuteHeightLocal = Math.max(64, Math.min(12800, hourHeightPx)) / 60;
+    const y = nowMinLocal * minuteHeightLocal;
+    const top = el.scrollTop;
+    const bottom = top + el.clientHeight;
+    const margin = 24; // 超出此边距视为“离屏”
+    const inView = y >= top + margin && y <= bottom - margin;
+    if (force || !inView) {
+      const target = Math.max(0, Math.min(y - el.clientHeight / 2, el.scrollHeight - el.clientHeight));
+      try {
+        el.scrollTo({ top: target, behavior: 'smooth' });
+      } catch {
+        el.scrollTop = target;
+      }
+    }
+  };
+
+  // 使“表格视图的当前时间分隔行”居中（使用相对滚动容器的几何计算，避免 sticky 或表格布局导致的 offsetTop 失真）
+  const centerNowInTable = (force = false) => {
+    const el = tableScrollRef.current;
+    if (!el) return;
+    const marker = el.querySelector('.now-separator') as HTMLElement | null;
+    if (!marker) return;
+    const markerRect = marker.getBoundingClientRect();
+    const containerRect = el.getBoundingClientRect();
+    // y 为 marker 中心点相对于容器滚动内容的绝对位置（加上当前 scrollTop 即可）
+    const y = (markerRect.top - containerRect.top) + el.scrollTop + markerRect.height / 2;
+    const top = el.scrollTop;
+    const bottom = top + el.clientHeight;
+    const margin = 24;
+    const inView = y >= top + margin && y <= bottom - margin;
+    if (force || !inView) {
+      const target = Math.max(0, Math.min(y - el.clientHeight / 2, el.scrollHeight - el.clientHeight));
+      try {
+        el.scrollTo({ top: target, behavior: 'smooth' });
+      } catch {
+        el.scrollTop = target;
+      }
+    }
+  };
   const [newTask, setNewTask] = useState<Partial<AutomationTask>>({
     name: '',
     task_type: 'text',
     enabled: true,
     schedule: '0 9 * * *',
+    duration_sec: 300,
     device_ids: settings.selectedDeviceId ? (() => {
       const selectedDevice = settings.devices.find(d => d.id === settings.selectedDeviceId);
       return selectedDevice?.serialNumber ? [selectedDevice.serialNumber] : [];
     })() : [],
     config: getDefaultConfigFor('text'),
   });
-  const [planned, setPlanned] = useState<Array<{ id: string; task_id: string; date: string; position: number; status: string; created_at: string; executed_at?: string; scheduled_at?: string }>>([]);
+  const [planned, setPlanned] = useState<Array<{ id: string; task_id: string; date: string; position: number; status: string; created_at: string; executed_at?: string; scheduled_at?: string; scheduled_end_at?: string }>>([]);
 
   const todayStr = () => {
     const d = new Date();
@@ -234,16 +300,12 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
       // 如果没有队列且有有效任务，自动生成今日队列
       const validTasks = ordering.filter(id => tasks.find(t => t.id === id && t.enabled));
       
-      if ((!items || items.length === 0) && validTasks.length > 0) {
-        console.log('fetchPlanned - 自动生成今日队列...'); // 调试信息
-        await invoke('automation_generate_planned_for_date', { date: today, order: validTasks });
-        const newItems = await invoke<typeof planned>('automation_get_planned_for_date', { date: today });
-        const sorted = [...newItems].sort((a, b) => a.position - b.position);
-        setPlanned(sorted as any);
-        showToast('已自动生成今日执行队列', 'info');
-        
-        // 检查是否需要生成明天的队列
-        await checkAndGenerateTomorrowQueue(sorted, validTasks);
+    if ((!items || items.length === 0) && validTasks.length > 0) {
+  console.log('fetchPlanned - 自动生成今日队列(异步)...'); // 调试信息
+  await invoke('automation_generate_planned_for_date', { date: today, order: validTasks });
+  showToast('正在生成今日执行队列…', 'info');
+  // 等待后端事件推动刷新；兜底1.5秒后拉取一次
+  setTimeout(() => { fetchPlanned(); }, 1500);
       } else {
         const sorted = [...(items || [])].sort((a, b) => a.position - b.position);
         setPlanned(sorted as any);
@@ -259,10 +321,18 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
   };
 
   const [ordering, setOrdering] = useState<string[]>([]);
-  
+
   useEffect(() => {
-    // 默认以当前启用任务的顺序填充排序（可拖拽的简版：上下按钮）
-    const initial = tasks.filter(t => t.enabled).map(t => t.id);
+    // 以“启用任务在前，禁用任务在后”的全量顺序填充，并按已有 priority 再按名称稳定排序
+    const enabled = tasks.filter(t => t.enabled);
+    const disabled = tasks.filter(t => !t.enabled);
+    const sortByPriorityThenName = (a: any, b: any) => {
+      const pa = typeof a.priority === 'number' ? a.priority : Number.POSITIVE_INFINITY;
+      const pb = typeof b.priority === 'number' ? b.priority : Number.POSITIVE_INFINITY;
+      if (pa !== pb) return pa - pb;
+      return (a.name || '').localeCompare(b.name || '');
+    };
+    const initial = [...enabled.sort(sortByPriorityThenName), ...disabled.sort(sortByPriorityThenName)].map(t => t.id);
     setOrdering(initial);
   }, [tasks]);
 
@@ -273,19 +343,77 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
     }
   }, [tasks, ordering]);
 
+  // 进入“日程”视图时，将“当前时间线”滚动到容器中间，仅自动一次；用户滚动后不再自动居中
+  useEffect(() => {
+    if (queueView !== 'agenda') {
+      // 切换离开后重置标记，以便下次进入再自动一次
+      hasUserScrolledRef.current = false;
+      hasCenteredRef.current = false;
+      return;
+    }
+    const el = agendaScrollRef.current;
+    if (!el) return;
+    if (hasUserScrolledRef.current || hasCenteredRef.current) return;
+    // 使用 rAF 确保 DOM 尺寸准备就绪
+    requestAnimationFrame(() => {
+      centerNow(true);
+      hasCenteredRef.current = true;
+    });
+  }, [queueView]);
+
+  // 若开启“自动居中”，当当前时间线离开可视区域时自动居中；随 currentTime/zoom 变化检查
+  useEffect(() => {
+    if (queueView !== 'agenda') return;
+    if (!autoCenterNow) return;
+    centerNow(false);
+  }, [currentTime, hourHeightPx, autoCenterNow, queueView]);
+
+  // 表格视图：进入时默认将“当前时间分隔行”居中，仅自动一次
+  useEffect(() => {
+    if (queueView !== 'table') {
+      tableHasUserScrolledRef.current = false;
+      tableHasCenteredRef.current = false;
+      return;
+    }
+    const el = tableScrollRef.current;
+    if (!el) return;
+    if (tableHasUserScrolledRef.current || tableHasCenteredRef.current) return;
+    requestAnimationFrame(() => {
+      centerNowInTable(true);
+      tableHasCenteredRef.current = true;
+    });
+  }, [queueView]);
+
+  // 若开启“自动居中”，当“当前时间分隔行”离开可视区域时自动居中（表格视图）
+  useEffect(() => {
+    if (queueView !== 'table') return;
+    if (!autoCenterNow) return;
+    centerNowInTable(false);
+  }, [currentTime, autoCenterNow, queueView]);
+
   const getOrderIndex = (id: string) => ordering.indexOf(id);
 
-  const moveOrder = (id: string, dir: -1 | 1) => {
-    setOrdering((prev) => {
-      const idx = prev.indexOf(id);
-      if (idx === -1) return prev;
-      const ni = idx + dir;
-      if (ni < 0 || ni >= prev.length) return prev;
-      const copy = prev.slice();
-      const [x] = copy.splice(idx, 1);
-      copy.splice(ni, 0, x);
-      return copy;
-    });
+  const moveOrder = async (id: string, dir: -1 | 1) => {
+    // 先基于当前状态计算新的顺序
+    const idx = ordering.indexOf(id);
+    if (idx === -1) return;
+    const ni = idx + dir;
+    if (ni < 0 || ni >= ordering.length) return;
+    const copy = ordering.slice();
+    const [x] = copy.splice(idx, 1);
+    copy.splice(ni, 0, x);
+
+    // 更新本地顺序
+    setOrdering(copy);
+
+    // 同步到后端，更新优先级（index 越小优先级越高）
+    try {
+  // 将全量顺序传给后端，避免未包含的任务保留旧 priority 导致重复
+  await invoke('automation_update_priorities', { args: { ordered_ids: copy } });
+    } catch (e) {
+      console.error('更新优先级失败:', e);
+      showToast('更新优先级失败', 'error');
+    }
   };
 
   // 合并生成和刷新功能的统一队列管理函数
@@ -311,15 +439,11 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
       
       // 如果队列为空，则自动生成
       if (!items || items.length === 0) {
-        console.log('队列为空，生成新队列...'); // 调试信息
+        console.log('队列为空，生成新队列(异步)...'); // 调试信息
         await invoke('automation_generate_planned_for_date', { date: today, order: validTasks });
-        const newItems = await invoke<typeof planned>('automation_get_planned_for_date', { date: today });
-        const sorted = [...newItems].sort((a, b) => a.position - b.position);
-        setPlanned(sorted as any);
-        showToast('已生成今日执行队列', 'success');
-        
-        // 检查是否需要生成明天的队列
-        await checkAndGenerateTomorrowQueue(sorted, validTasks);
+        showToast('正在生成今日执行队列…', 'info');
+        // 等待后端事件推动刷新；兜底1.5秒后拉取一次
+        setTimeout(() => { fetchPlanned(); }, 1500);
       } else {
         console.log('队列存在，检查有效性...'); // 调试信息
         // 队列存在，检查队列中的任务是否仍然有效
@@ -329,15 +453,11 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
         
         // 如果队列中没有有效任务，重新生成
         if (validQueueItems.length === 0) {
-          console.log('队列中无有效任务，重新生成...'); // 调试信息
+          console.log('队列中无有效任务，重新生成(异步)...'); // 调试信息
           await invoke('automation_generate_planned_for_date', { date: today, order: validTasks });
-          const newItems = await invoke<typeof planned>('automation_get_planned_for_date', { date: today });
-          const sorted = [...newItems].sort((a, b) => a.position - b.position);
-          setPlanned(sorted as any);
-          showToast('已重新生成执行队列', 'success');
-          
-          // 检查是否需要生成明天的队列
-          await checkAndGenerateTomorrowQueue(sorted, validTasks);
+          showToast('正在重新生成执行队列…', 'info');
+          // 等待后端事件推动刷新；兜底1.5秒后拉取一次
+          setTimeout(() => { fetchPlanned(); }, 1500);
         } else {
           console.log('使用现有有效队列...'); // 调试信息
           // 只显示有效的队列项
@@ -442,6 +562,30 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
     initLoad();
   }, [settings]);
 
+  // 监听后端“计划生成完成”事件，自动刷新
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    (async () => {
+      try {
+        unlisten = await listen('automation:planned:generated', (evt) => {
+          const payload = evt?.payload as any;
+          const d = payload?.date as string | undefined;
+          const count = payload?.count as number | undefined;
+          const today = todayStr();
+          if (!d || d !== today) return;
+          fetchPlanned();
+          if (typeof count === 'number') {
+            showToast(`队列已更新（${count} 项）`, 'success');
+          }
+        });
+      } catch (e) {
+        console.warn('事件监听失败', e);
+      }
+    })();
+    return () => { try { unlisten && unlisten(); } catch {} };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
   // Countdown tick: update every second so relative times and next execution stay fresh
   const timer = setInterval(() => setCurrentTime(new Date()), 1000);
@@ -460,9 +604,12 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
       const bgImage = cfg?.background_image ?? cfg?.backgroundImage ?? null;
       const texts = normalizeTexts(cfg?.texts ?? []);
 
-      const drawBaseAndTexts = () => {
-        ctx.fillStyle = bgColor;
-        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      // 调试信息
+      console.log('generateT2iPreview - bgImage:', bgImage ? `${bgImage.substring(0, 50)}...` : 'null');
+      console.log('generateT2iPreview - bgColor:', bgColor);
+      console.log('generateT2iPreview - texts count:', texts.length);
+
+      const drawTexts = () => {
         texts.forEach((t) => {
           ctx.save();
           ctx.font = `${t.fontWeight} ${t.fontSize}px ${t.fontFamily}`;
@@ -473,6 +620,12 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
           ctx.fillText(t.content, 0, 0);
           ctx.restore();
         });
+      };
+
+      const drawBaseAndTexts = () => {
+        ctx.fillStyle = bgColor;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        drawTexts();
         return canvas.toDataURL('image/png');
       };
 
@@ -480,9 +633,11 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
         const img = new Image();
         return await new Promise((resolve) => {
           img.onload = () => {
+            // 先绘制背景图片
             ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            const url = drawBaseAndTexts();
-            resolve(url);
+            // 然后只绘制文本，不要覆盖背景
+            drawTexts();
+            resolve(canvas.toDataURL('image/png'));
           };
           img.onerror = () => resolve(drawBaseAndTexts());
           img.src = bgImage;
@@ -539,6 +694,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
         schedule: task.schedule,
         fixed_at: task.fixed_at,
         interval_sec: task.interval_sec,
+  duration_sec: typeof task.duration_sec === 'number' ? task.duration_sec : 300,
         device_ids: task.device_ids,
         config: task.config,
       });
@@ -552,6 +708,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
         schedule: '0 9 * * *',
         fixed_at: undefined,
         interval_sec: undefined,
+  duration_sec: 300,
         device_ids: settings.selectedDeviceId ? (() => {
           const selectedDevice = settings.devices.find(d => d.id === settings.selectedDeviceId);
           return selectedDevice?.serialNumber ? [selectedDevice.serialNumber] : [];
@@ -576,6 +733,8 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
     const preset = cronPresets.find(p => p.value === cron);
     return preset ? preset.label : cron;
   };
+
+  // 计划表改为只显示开始时间与持续时长
 
   // 根据任务字段判断调度模式
   const getTaskMode = (t: AutomationTask): ScheduleMode => {
@@ -698,6 +857,7 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
         updated_at: new Date().toISOString(),
         fixed_at: sanitizedFixedAt,
         interval_sec: sanitizedInterval,
+        duration_sec: typeof newTask.duration_sec === 'number' ? newTask.duration_sec : 300,
       };
 
       if (editingTask) {
@@ -788,18 +948,44 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
       showToast('找不到设备或API密钥', 'error');
       return;
     }
+    
     try {
       showToast(`正在执行任务: ${task.name}...`, 'info');
-      await invoke('automation_execute_task', { taskId: task.id, apiKey: device.apiKey });
+      
+      // 如果是 TextToImage 任务，使用前端渲染
+      if (task.task_type === 'text-to-image') {
+        // 先获取处理宏替换后的任务配置
+        const processedConfig = await invoke('automation_get_t2i_task_with_macros', { 
+          taskId: task.id 
+        }) as any;
+        
+        // 使用前端渲染生成图片
+        const renderedImageData = await generateT2iPreview(processedConfig);
+        
+        if (!renderedImageData) {
+          throw new Error('前端渲染失败');
+        }
+        
+        // 使用前端渲染的图片执行任务
+        await invoke('automation_execute_t2i_with_frontend_render', { 
+          taskId: task.id, 
+          renderedImageData,
+          apiKey: device.apiKey 
+        });
+      } else {
+        // 其他类型任务使用原来的方式
+        await invoke('automation_execute_task', { taskId: task.id, apiKey: device.apiKey });
+      }
+      
       showToast(`任务执行成功: ${task.name}`, 'success');
-  await Promise.all([loadTasks(), loadLogs()]);
-  // 执行后刷新队列一次
-  await fetchPlanned();
+      await Promise.all([loadTasks(), loadLogs()]);
+      // 执行后刷新队列一次
+      await fetchPlanned();
     } catch (error) {
       console.error('任务执行失败:', error);
       showToast(`任务执行失败: ${error}`, 'error');
-  // 失败也可能标记为 skipped，刷新一次
-  await fetchPlanned();
+      // 失败也可能标记为 skipped，刷新一次
+      await fetchPlanned();
     }
   };
 
@@ -898,8 +1084,8 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                   const idx = getOrderIndex(task.id);
                   const atTop = idx <= 0;
                   const atBottom = idx === ordering.length - 1;
-                  const plannedPos = planned.find(p => p.task_id === task.id)?.position;
-                  const displayPos = plannedPos ?? (idx >= 0 ? idx + 1 : undefined);
+                  // 显示的序号以全量 ordering 的索引为准，避免因 planned.position 导致的重复/混淆
+                  const displayPos = idx >= 0 ? idx + 1 : undefined;
                   return (
                     <div
                       key={task.id}
@@ -1312,148 +1498,328 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
           overflow: 'hidden',
           position: 'relative'
         }}>
-          <h4 style={{ margin: '0 0 12px 0', flexShrink: 0 }}>今日执行队列</h4>
+          {/* 标题 + 视图切换 */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', margin: '0 0 12px 0', flexShrink: 0 }}>
+            <h4 style={{ margin: 0 }}>今日执行队列</h4>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <button
+                className="action-button"
+                onClick={() => setQueueView('table')}
+                style={{
+                  padding: '4px 10px',
+                  background: queueView === 'table' ? '#3b82f6' : 'var(--background-color, #fff)',
+                  color: queueView === 'table' ? '#fff' : 'inherit',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 6
+                }}
+              >表格</button>
+              <button
+                className="action-button"
+                onClick={() => setQueueView('agenda')}
+                style={{
+                  padding: '4px 10px',
+                  background: queueView === 'agenda' ? '#3b82f6' : 'var(--background-color, #fff)',
+                  color: queueView === 'agenda' ? '#fff' : 'inherit',
+                  border: '1px solid var(--border-color)',
+                  borderRadius: 6
+                }}
+              >日程</button>
+              {queueView === 'table' && (
+                <div style={{ display: 'flex', gap: 10, marginLeft: 8, alignItems: 'center', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                  {/* 自动居中开关（表格视图） */}
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted-color)' }}>
+                    <input
+                      type="checkbox"
+                      checked={autoCenterNow}
+                      onChange={(e) => {
+                        setAutoCenterNow(e.target.checked);
+                        if (e.target.checked) {
+                          // 立即尝试一次居中（表格）
+                          requestAnimationFrame(() => centerNowInTable(true));
+                        }
+                      }}
+                      style={{ margin: 0 }}
+                    />
+                    此时
+                  </label>
+                </div>
+              )}
+              {queueView === 'agenda' && (
+                <div style={{ display: 'flex', gap: 10, marginLeft: 8, alignItems: 'center', flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+                  <span style={{ fontSize: 11, color: 'var(--muted-color)' }}>高度</span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'nowrap' }}>
+                    <button
+                      className="action-button"
+                      onClick={() => {
+                        const presets = [64, 640, 1280, 2560, 6400, 12800];
+                        const idx = presets.findIndex(v => v === hourHeightPx);
+                        const next = idx > 0 ? presets[idx - 1] : presets[0];
+                        setHourHeightPx(next);
+                      }}
+                      title="减小高度"
+                      aria-label="减小每小时高度"
+                      style={{ width: 22, height: 22, minWidth: 22, padding: 0, border: '1px solid var(--border-color)', borderRadius: 6, fontSize: 12, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >‹</button>
+                    <div style={{ minWidth: 64, textAlign: 'center', fontSize: 11, color: 'var(--muted-color)' }}>{hourHeightPx} px/h</div>
+                    <button
+                      className="action-button"
+                      onClick={() => {
+                        const presets = [64, 640, 1280, 2560, 6400, 12800];
+                        const idx = presets.findIndex(v => v === hourHeightPx);
+                        const next = idx >= 0 && idx < presets.length - 1 ? presets[idx + 1] : presets[presets.length - 1];
+                        setHourHeightPx(next);
+                      }}
+                      title="增大高度"
+                      aria-label="增大每小时高度"
+                      style={{ width: 22, height: 22, minWidth: 22, padding: 0, border: '1px solid var(--border-color)', borderRadius: 6, fontSize: 12, lineHeight: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                    >›</button>
+                  </div>
+                  <button
+                    className="action-button"
+                    onClick={() => setHourHeightPx(6400)}
+                    style={{ padding: '2px 4px', minWidth: 44, height: 22, border: '1px solid var(--border-color)', borderRadius: 6, background: 'var(--background-color, #fff)', fontSize: 11, lineHeight: 1 }}
+                  >重置</button>
+                  {/* 自动居中开关 */}
+                  <label style={{ display: 'inline-flex', alignItems: 'center', gap: 6, fontSize: 12, color: 'var(--muted-color)' }}>
+                    <input
+                      type="checkbox"
+                      checked={autoCenterNow}
+                      onChange={(e) => {
+                        setAutoCenterNow(e.target.checked);
+                        if (e.target.checked) {
+                          // 立即尝试一次居中
+                          requestAnimationFrame(() => centerNow(true));
+                        }
+                      }}
+                      style={{ margin: 0 }}
+                    />
+                    此时
+                  </label>
+                </div>
+              )}
+            </div>
+          </div>
+
           {planned.length === 0 ? (
             <div className="empty-state">今日暂无队列</div>
           ) : (
             (() => {
-              // 限制显示数量：上方最多3条过去的，下方最多11条未来的
-              const nowTs = currentTime.getTime();
-              const withTime = planned.map((p) => ({
-                ...p,
-                _ts: p.scheduled_at ? new Date(p.scheduled_at).getTime() : (p.executed_at ? new Date(p.executed_at).getTime() : 0)
-              })).sort((a, b) => a._ts - b._ts);
-              const past = withTime.filter(p => p._ts > 0 && p._ts <= nowTs);
-              const future = withTime.filter(p => p._ts > nowTs);
-              const pastVisible = past.slice(-3); // 显示最近3条过去的
-              const futureVisible = future.slice(0, 11); // 显示前11条未来的
-              return (
-                <div className="queue-container" style={{ 
-                  position: 'relative',
-                  flex: 1,
-                  minHeight: 0,
-                  overflow: 'hidden'
-                }}>
-                  {/* 顶部渐变遮罩和省略提示 */}
-                  {past.length > 3 && (
-                    <div style={{
-                      position: 'absolute',
-                      top: 0,
-                      left: 0,
-                      right: 0,
-                      height: '60px',
-                      background: 'linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,0.9), rgba(255,255,255,0))',
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      justifyContent: 'center',
-                      paddingTop: '8px',
-                      pointerEvents: 'none',
-                      zIndex: 3
-                    }}>
-                      <span style={{
-                        fontSize: '12px',
-                        color: 'var(--muted-color)',
-                        fontStyle: 'italic'
-                      }}>
-                        还有 {past.length - 3} 条过去的任务未显示...
-                      </span>
-                    </div>
-                  )}
-                  
-                  <table className="planned-table" style={{ width: '100%' }}>
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>任务</th>
-                        <th>计划时间</th>
-                        <th>状态</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                    {/* 过去的任务（最多3条），第一条有渐变效果 */}
-                    {pastVisible.map((p, idx) => {
-                       const t = tasks.find(x => x.id === p.task_id);
-                       const isFirstVisible = idx === 0 && past.length > 3;
-                       return (
-                         <tr key={p.id} className="row-past" style={{
-                           opacity: isFirstVisible ? 0.3 : 0.6,
-                           background: isFirstVisible 
-                             ? 'linear-gradient(to bottom, rgba(0,0,0,0), rgba(0,0,0,0.05), rgba(0,0,0,0.1))' 
-                             : 'linear-gradient(to bottom, rgba(0,0,0,0.1), rgba(0,0,0,0.02))',
-                           position: 'relative'
-                         }}>
-                           <td>{p.position}</td>
-                           <td>{t?.name || p.task_id}</td>
-                           <td>{p.scheduled_at ? new Date(p.scheduled_at).toLocaleString('zh-CN') : '-'}</td>
-                           <td>{p.status}</td>
-                         </tr>
-                       );
-                    })}
-                    
-                    {/* 当前时间分隔行 */}
-                    <tr className="now-separator" style={{
-                      background: 'linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b)',
-                      fontWeight: 'bold',
-                      position: 'sticky',
-                      top: 0,
-                      zIndex: 2,
-                      boxShadow: '0 2px 4px rgba(0,0,0,0.1)'
-                    }}>
-                      <td colSpan={4} style={{ 
-                        textAlign: 'center', 
-                        color: '#fff',
-                        padding: '8px',
-                        fontSize: '14px',
-                        textShadow: '0 1px 2px rgba(0,0,0,0.3)'
-                      }}>
-                        ⏰ 当前时间：{currentTime.toLocaleString('zh-CN')} ⏰
-                      </td>
-                    </tr>
-                    
-                    {/* 未来的任务 */}
-                    {futureVisible.map((p, idx) => {
-                      const t = tasks.find(x => x.id === p.task_id);
-                      const isLastVisible = idx === futureVisible.length - 1 && future.length > 11;
-                      return (
-                        <tr key={p.id} style={{
-                          opacity: isLastVisible ? 0.3 : 1,
-                          background: isLastVisible ? 'linear-gradient(to bottom, rgba(255,255,255,1), rgba(255,255,255,0))' : 'inherit',
-                          position: 'relative'
-                        }}>
-                          <td>{p.position}</td>
-                          <td>{t?.name || p.task_id}</td>
-                          <td>{p.scheduled_at ? new Date(p.scheduled_at).toLocaleString('zh-CN') : '-'}</td>
-                          <td>{p.status}</td>
+              if (queueView === 'table') {
+                // 表格视图：展示全部任务，支持滚动，并支持“当前时间”自动居中
+                const nowTs = currentTime.getTime();
+                const withTime = planned.map((p) => ({
+                  ...p,
+                  _ts: p.scheduled_at ? new Date(p.scheduled_at).getTime() : (p.executed_at ? new Date(p.executed_at).getTime() : 0)
+                })).sort((a, b) => a._ts - b._ts);
+                return (
+                  <div
+                    className="queue-container"
+                    ref={tableScrollRef}
+                    onScroll={() => { tableHasUserScrolledRef.current = true; }}
+                    style={{ position: 'relative', flex: 1, minHeight: 0, overflowY: 'auto', overflowX: 'hidden', border: '1px solid var(--border-color)', borderRadius: 8 }}
+                  >
+                    <table className="planned-table" style={{ width: '100%' }}>
+                      <thead style={{ position: 'sticky', top: 0, zIndex: 3, background: 'var(--panel-bg, #fff)', borderBottom: '1px solid #9ca3af' }}>
+                        <tr>
+                          <th>#</th>
+                          <th>任务</th>
+                          <th>开始时间</th>
+                          <th>持续</th>
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-                
-                {/* 底部渐变遮罩和省略提示 */}
-                {future.length > 11 && (
-                  <div style={{
-                    position: 'absolute',
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                    height: '60px',
-                    background: 'linear-gradient(to bottom, rgba(255,255,255,0), rgba(255,255,255,0.9), rgba(255,255,255,1))',
-                    display: 'flex',
-                    alignItems: 'flex-end',
-                    justifyContent: 'center',
-                    paddingBottom: '8px',
-                    pointerEvents: 'none'
-                  }}>
-                    <span style={{
-                      fontSize: '12px',
-                      color: 'var(--muted-color)',
-                      fontStyle: 'italic'
-                    }}>
-                      还有 {future.length - 11} 条任务未显示...
-                    </span>
+                      </thead>
+                      <tbody>
+            {withTime.filter(p => p._ts > 0 && p._ts <= nowTs).map((p) => {
+                          const t = tasks.find(x => x.id === p.task_id);
+                          return (
+              <tr key={p.id} className="row-past" style={{ opacity: 0.7 }}>
+                              <td>{p.position}</td>
+                              <td>{t?.name || p.task_id}</td>
+                              <td>{(() => { const s = p.scheduled_at as any; return s ? new Date(s).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'; })()}</td>
+                              <td>{(() => {
+                                const sa = p.scheduled_at as any; const ea = p.scheduled_end_at as any; if (!sa || !ea) return '-';
+                                const ms = new Date(ea).getTime() - new Date(sa).getTime();
+                                const sec = Math.max(0, Math.round(ms / 1000));
+                                if (sec >= 3600) { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return m === 0 ? `${h} 小时` : `${h} 小时 ${m} 分钟`; }
+                                else if (sec >= 60) { const m = Math.floor(sec / 60); const s = sec % 60; return s === 0 ? `${m} 分钟` : `${m} 分钟 ${s} 秒`; }
+                                return `${sec} 秒`;
+                              })()}</td>
+                            </tr>
+                          );
+                        })}
+                        <tr className="now-separator" style={{ background: 'linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b)', fontWeight: 'bold' }}>
+                          <td colSpan={4} style={{ textAlign: 'center', color: '#fff', padding: '8px', fontSize: '14px', textShadow: '0 1px 2px rgba(0,0,0,0.3)' }}>⏰ 当前时间：{currentTime.toLocaleString('zh-CN')} ⏰</td>
+                        </tr>
+            {withTime.filter(p => p._ts > nowTs).map((p) => {
+                          const t = tasks.find(x => x.id === p.task_id);
+                          return (
+              <tr key={p.id}>
+                              <td>{p.position}</td>
+                              <td>{t?.name || p.task_id}</td>
+                              <td>{(() => { const s = p.scheduled_at as any; return s ? new Date(s).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-'; })()}</td>
+                              <td>{(() => {
+                                const sa = p.scheduled_at as any; const ea = p.scheduled_end_at as any; if (!sa || !ea) return '-';
+                                const ms = new Date(ea).getTime() - new Date(sa).getTime();
+                                const sec = Math.max(0, Math.round(ms / 1000));
+                                if (sec >= 3600) { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return m === 0 ? `${h} 小时` : `${h} 小时 ${m} 分钟`; }
+                                else if (sec >= 60) { const m = Math.floor(sec / 60); const s = sec % 60; return s === 0 ? `${m} 分钟` : `${m} 分钟 ${s} 秒`; }
+                                return `${sec} 秒`;
+                              })()}</td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
                   </div>
-                )}
+                );
+              }
+
+              // 日程视图
+              // 根据滑块设置每小时高度（像素）
+              const hourHeight = Math.max(64, Math.min(12800, hourHeightPx));
+              const minuteHeight = hourHeight / 60; // 每分钟高度(px)
+              const totalHeight = 24 * hourHeight;
+              const nowMin = (() => {
+                const n = currentTime;
+                return n.getHours() * 60 + n.getMinutes() + n.getSeconds() / 60;
+              })();
+              const getMinutes = (iso?: string) => {
+                if (!iso) return 0;
+                const d = new Date(iso);
+                return d.getHours() * 60 + d.getMinutes() + d.getSeconds() / 60;
+              };
+              const orderMap = new Map(ordering.map((id, i) => [id, i]));
+
+              // 自适应刻度密度与标签频率
+              const drawMinute = minuteHeight >= 4;   // >= 4px/分钟 显示1分钟刻度
+              const drawFive = minuteHeight >= 2;     // >= 2px/分钟 显示5分钟刻度
+              const drawQuarter = minuteHeight >= 1;  // >= 1px/分钟 显示15分钟刻度
+
+              const ticks: any[] = [];
+              // 小时线（最粗）
+              for (let i = 0; i <= 1440; i += 60) {
+                const y = Math.min(i * minuteHeight, totalHeight - 1);
+                ticks.push(
+                  <div key={`tick-h-${i}`} style={{ position: 'absolute', top: y, left: 0, right: 0, height: 2, background: 'var(--border-color)' }} />
+                );
+              }
+              // 15分钟线（适中）
+              if (drawQuarter) {
+                for (let i = 15; i < 1440; i += 15) {
+                  if (i % 60 === 0) continue;
+                  const y = Math.min(i * minuteHeight, totalHeight - 1);
+                  ticks.push(
+                    <div key={`tick-q-${i}`} style={{ position: 'absolute', top: y, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.18)' }} />
+                  );
+                }
+              }
+              // 5分钟线（较淡）
+              if (drawFive) {
+                for (let i = 5; i < 1440; i += 5) {
+                  if (i % 15 === 0) continue;
+                  const y = Math.min(i * minuteHeight, totalHeight - 1);
+                  ticks.push(
+                    <div key={`tick-f-${i}`} style={{ position: 'absolute', top: y, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.12)' }} />
+                  );
+                }
+              }
+              // 1分钟线（最淡）
+              if (drawMinute) {
+                for (let i = 1; i < 1440; i += 1) {
+                  if (i % 5 === 0) continue;
+                  const y = Math.min(i * minuteHeight, totalHeight - 1);
+                  ticks.push(
+                    <div key={`tick-m-${i}`} style={{ position: 'absolute', top: y, left: 0, right: 0, height: 1, background: 'rgba(0,0,0,0.06)' }} />
+                  );
+                }
+              }
+
+              // 标签频率：高密度→5分钟；中密度→15分钟；低密度→60分钟
+              const labelStep = minuteHeight >= 8 ? 5 : (minuteHeight >= 2 ? 15 : 60);
+              const labels: any[] = [];
+              for (let m = 0; m <= 1440; m += labelStep) {
+                const y = Math.min(m * minuteHeight + 2, totalHeight - 14);
+                const hh = Math.floor(m / 60);
+                const mm = m % 60;
+                const label = `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
+                labels.push(
+                  <div key={`label-${m}`} style={{ position: 'absolute', top: y, left: 8, fontSize: 10, color: 'var(--muted-color)', userSelect: 'none' }}>{label}</div>
+                );
+              }
+        const events = planned
+                .filter(p => p.scheduled_at)
+                .map(p => {
+                  const s = Math.max(0, Math.min(1440, getMinutes(p.scheduled_at)));
+                  const rawEnd = getMinutes(p.scheduled_end_at) || (s + 5);
+                  const e = Math.max(s + 0.1, Math.min(1440, rawEnd));
+                  const durationMin = Math.max(0.5, e - s);
+          const top = s * minuteHeight;
+          const height = Math.max(1, durationMin * minuteHeight);
+                  const prio = orderMap.has(p.task_id) ? (orderMap.get(p.task_id) as number) : Number.MAX_SAFE_INTEGER;
+                  return { p, s, e, top, height, prio };
+                })
+                .sort((a, b) => a.s - b.s || a.prio - b.prio);
+
+              return (
+                <div style={{ position: 'relative', flex: 1, minHeight: 0, overflow: 'hidden', display: 'flex' }}>
+                  {/* 可滚动容器 */}
+                  <div
+                    ref={agendaScrollRef}
+                    onScroll={() => { hasUserScrolledRef.current = true; }}
+                    style={{ position: 'relative', flex: 1, overflowY: 'auto', overflowX: 'hidden', border: '1px solid var(--border-color)', borderRadius: 8 }}
+                  >
+                    {/* 内容区域 */}
+                    <div style={{ position: 'relative', height: totalHeight }}>
+                      {/* 自适应刻度与标签 */}
+                      {ticks}
+                      {labels}
+
+                      {/* 当前时间线 */}
+                      <div style={{ position: 'absolute', top: Math.max(0, Math.min(totalHeight, nowMin * minuteHeight)), left: 0, right: 0, height: 2, background: 'linear-gradient(90deg, #f59e0b, #ef4444, #f59e0b)', boxShadow: '0 0 6px rgba(239,68,68,0.5)' }} />
+
+                      {/* 事件块 */}
+                      {events.map(({ p, top, height, prio, e }) => {
+                        const t = tasks.find(x => x.id === p.task_id);
+                        const isPast = e <= nowMin;
+                        // 保证在模态层(overlay)之下：overlay z-index=2000；事件卡片最大不超过 <2000
+                        const z = Math.max(1, 1900 - prio); // 优先级高仍更靠上，但整体低于模态层
+                        const name = t?.name || p.task_id;
+                        const startStr = p.scheduled_at ? new Date(p.scheduled_at).toLocaleTimeString('zh-CN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '';
+                        const durationSec = (() => {
+                          const sa = p.scheduled_at as any; const ea = p.scheduled_end_at as any; if (!sa || !ea) return 0;
+                          return Math.max(0, Math.round((new Date(ea).getTime() - new Date(sa).getTime()) / 1000));
+                        })();
+                        const durationLabel = (() => {
+                          const sec = durationSec;
+                          if (sec >= 3600) { const h = Math.floor(sec / 3600); const m = Math.floor((sec % 3600) / 60); return m === 0 ? `${h} 小时` : `${h} 小时 ${m} 分钟`; }
+                          else if (sec >= 60) { const m = Math.floor(sec / 60); const s2 = sec % 60; return s2 === 0 ? `${m} 分钟` : `${m} 分钟 ${s2} 秒`; }
+                          return sec > 0 ? `${sec} 秒` : '';
+                        })();
+                        return (
+                          <div key={p.id} style={{ position: 'absolute', left: 80, right: 8, top, height, zIndex: z }}>
+                            <div style={{
+                              height: '100%',
+                              boxSizing: 'border-box',
+                              borderRadius: 8,
+                              border: '1px solid var(--border-color)',
+                              background: isPast ? 'rgba(107,114,128,0.15)' : 'rgba(59,130,246,0.12)',
+                              boxShadow: '0 2px 6px rgba(0,0,0,0.08)',
+                              backdropFilter: 'blur(2px)',
+                              display: 'flex',
+                              flexDirection: 'column',
+                              padding: 8,
+                              overflow: 'hidden'
+                            }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 4 }}>
+                                <div style={{ fontWeight: 700, fontSize: 13, overflow: 'hidden', whiteSpace: 'nowrap', textOverflow: 'ellipsis' }}>{name}</div>
+                                <div style={{ fontSize: 12, color: 'var(--muted-color)' }}>{startStr}{durationLabel ? ` · ${durationLabel}` : ''}</div>
+                                <span style={{ fontSize: 11, color: '#6366f1', fontWeight: 700 }}>#{orderMap.get(p.task_id) !== undefined ? (orderMap.get(p.task_id)! + 1) : '-'}</span>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                 </div>
               );
             })()
@@ -1635,6 +2001,24 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                         {device.nickname || device.serialNumber || `设备 ${device.id.slice(-4)}`}
                       </label>
                     ))}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>持续时间（秒）</label>
+                  <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                    <input
+                      type="number"
+                      min={1}
+                      max={86400}
+                      value={typeof newTask.duration_sec === 'number' ? newTask.duration_sec : 300}
+                      onChange={(e) => {
+                        const v = Number(e.target.value || 0);
+                        const clamped = Math.max(1, Math.min(86400, v));
+                        setNewTask({ ...newTask, duration_sec: clamped });
+                      }}
+                    />
+                    <span style={{ fontSize: 12, color: 'var(--muted-color)' }}>用于生成队列时的时间段长度，默认5分钟</span>
                   </div>
                 </div>
 
@@ -1880,7 +2264,9 @@ const AutomationTab: React.FC<AutomationTabProps> = ({ showToast, settings }) =>
                               try {
                                 const content = r.target?.result as string;
                                 const json = JSON.parse(content);
+                                console.log('导入的原始配置:', json);
                                 const normalized = normalizeImportedConfig('text-to-image', json);
+                                console.log('标准化后的配置:', normalized);
                                 setNewTask((prev) => ({ ...prev, config: normalized }));
                                 showToast('配置导入成功', 'success');
                               } catch (err) {
