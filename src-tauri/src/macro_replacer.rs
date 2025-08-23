@@ -6,6 +6,7 @@ use std::time::{Duration, Instant};
 use sysinfo::{Disks, Networks, Components, System, RefreshKind};
 use std::env;
 use if_addrs::{get_if_addrs, IfAddr};
+#[cfg(not(windows))]
 use pnet_datalink as datalink;
 
 /// 宏替换器，支持多种文本宏替换格式
@@ -303,16 +304,18 @@ impl MacroReplacer {
             }
         });
         // MAC 地址（若可用）
+        #[cfg(not(windows))]
         self.register_macro("NETWORK_MAC", || {
-            // Use pnet_datalink to get MAC of the first non-loopback interface
             let mut mac = None;
             for iface in datalink::interfaces().into_iter().filter(|i| !i.is_loopback()) {
-                if let Some(m) = iface.mac {
-                    mac = Some(m.to_string());
-                    break;
-                }
+                if let Some(m) = iface.mac { mac = Some(m.to_string()); break; }
             }
             mac.unwrap_or_else(|| "Unknown".to_string())
+        });
+        #[cfg(windows)]
+        self.register_macro("NETWORK_MAC", || {
+            // Windows 构建不依赖 pnet_datalink，返回占位值
+            "Unknown".to_string()
         });
     }
 

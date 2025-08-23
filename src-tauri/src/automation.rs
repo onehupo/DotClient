@@ -1679,6 +1679,7 @@ async fn execute_image_task(
 }
 
 // 使用与前端一致的 HTML5 Canvas 渲染（通过无头 Chrome）
+#[cfg(not(windows))]
 async fn render_t2i_via_headless_canvas(
         background_color: &str,
         background_image: Option<&str>,
@@ -1799,4 +1800,14 @@ async fn render_t2i_via_headless_canvas(
                 .ok_or_else(|| "无法读取数据URL".to_string())?;
 
         Ok(data_url)
+}
+
+// Windows 构建下的占位实现（禁用 headless_chrome）
+#[cfg(windows)]
+async fn render_t2i_via_headless_canvas(
+    _background_color: &str,
+    _background_image: Option<&str>,
+    _texts: &[TextElement],
+) -> Result<String, String> {
+    Err("Windows 构建未启用后端 Canvas 渲染（移除了 headless_chrome 依赖）".into())
 }
