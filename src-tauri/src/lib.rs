@@ -478,7 +478,6 @@ async fn get_macros_help_markdown() -> Result<String, String> {
 }
 
 // 使用与前端一致的 HTML5 Canvas 渲染（通过无头 Chrome），并对文本内容进行宏替换
-#[cfg(not(windows))]
 #[tauri::command]
 async fn render_t2i_via_headless_canvas_api(
     background_color: String,
@@ -630,17 +629,6 @@ async fn render_t2i_via_headless_canvas_api(
         .ok_or_else(|| "无法读取数据URL".to_string())?;
 
     Ok(data_url)
-}
-
-// Windows 上禁用 headless_chrome 以避免额外依赖，提供占位实现
-#[cfg(windows)]
-#[tauri::command]
-async fn render_t2i_via_headless_canvas_api(
-    _background_color: String,
-    _background_image: Option<String>,
-    _texts: Vec<TextElement>,
-) -> Result<String, String> {
-    Err("Text-to-Image 后端渲染在 Windows 打包时已禁用（无头 Chrome 依赖已移除）".to_string())
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

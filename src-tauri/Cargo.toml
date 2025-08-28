@@ -40,7 +40,6 @@ sysinfo = { version = "0.30", default-features = true }
 if-addrs = "0.10"
  
 
-[target.'cfg(not(windows))'.dependencies]
 headless_chrome = "0.9"
 pnet_datalink = "0.33"
 
