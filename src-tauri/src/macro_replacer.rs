@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 use sysinfo::{Disks, Networks, Components, System, RefreshKind};
 use std::env;
 use if_addrs::{get_if_addrs, IfAddr};
-use pnet_datalink as datalink;
+use mac_address::get_mac_address;
 
 /// 宏替换器，支持多种文本宏替换格式
 pub struct MacroReplacer {
@@ -304,11 +304,10 @@ impl MacroReplacer {
         });
         // MAC 地址（若可用）
         self.register_macro("NETWORK_MAC", || {
-            let mut mac = None;
-            for iface in datalink::interfaces().into_iter().filter(|i| !i.is_loopback()) {
-                if let Some(m) = iface.mac { mac = Some(m.to_string()); break; }
+            match get_mac_address() {
+                Ok(Some(ma)) => ma.to_string(),
+                _ => "Unknown".to_string(),
             }
-            mac.unwrap_or_else(|| "Unknown".to_string())
         });
     }
 

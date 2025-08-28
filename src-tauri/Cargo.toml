@@ -41,5 +41,5 @@ if-addrs = "0.10"
  
 
 headless_chrome = "0.9"
-pnet_datalink = "0.33"
+mac_address = "1.1"
 
